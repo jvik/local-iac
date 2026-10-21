@@ -1,0 +1,36 @@
+---
+# ZFS pools to create, each registered as Proxmox storage. Example:
+#
+# proxmox_zfs_pools:
+#   - name: tank
+#     force: false                 # zpool create -f, e.g. for a mirror of different-sized disks
+#     vdevs:
+#       - type: mirror
+#         disks:
+#           - /dev/disk/by-id/nvme-...
+#           - /dev/disk/by-id/ata-...
+#     pool_properties: {}          # merged over proxmox_zfs_pool_properties
+#     filesystem_properties: {}    # merged over proxmox_zfs_filesystem_properties
+#     storage:
+#       content: [images, rootdir]
+#       sparse: true
+proxmox_zfs_pools: []
+
+# Empty Proxmox LVM storages to remove so their disks can join a pool. The role refuses to remove
+# a storage that has volumes or a VG that has logical volumes. Example:
+#
+# proxmox_zfs_retired_lvm:
+#   - storage: lvm-01
+#     vg: lvm-01
+#     pvs: [/dev/disk/by-id/nvme-...]
+proxmox_zfs_retired_lvm: []
+
+proxmox_zfs_pool_properties:
+  ashift: 12
+  autoexpand: true
+  autotrim: true
+
+proxmox_zfs_filesystem_properties:
+  compression: lz4
+  atime: false
+  xattr: sa

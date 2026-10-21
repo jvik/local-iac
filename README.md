@@ -59,7 +59,7 @@ step-by-step procedure, verification and recovery.
 ├── playbooks/
 │   ├── site.yml             # Runs everything
 │   ├── inventory.yml        # Read-only hardware/storage/network/guest report
-│   ├── proxmox.yml          # Host configuration
+│   ├── proxmox.yml          # Host configuration (hardware-specific)
 │   └── guests.yml           # VM / LXC provisioning
 ├── reports/                 # Generated host reports (git-ignored)
 └── roles/
@@ -75,6 +75,28 @@ just check                             # Dry run site.yml with a diff
 just apply                             # Apply site.yml
 just check bootstrap --tags api        # Any playbook, extra args pass through
 just apply site --limit pve01 --tags ssh
+```
+
+## Storage
+
+> **Hardware-specific / one-off.** The storage setup is written for the pve01 hardware (HP Z1 G8)
+> and its exact disks. It wipes disks. Review `inventory/host_vars/pve01/vars.yml` against the
+> real hardware before running it elsewhere or after a disk change.
+
+The `proxmox_zfs` role (in `playbooks/proxmox.yml`) creates ZFS pools and registers them as
+Proxmox storage. Pools and their disks are defined per host in
+`inventory/host_vars/<host>/vars.yml`, always by `/dev/disk/by-id` path.
+
+On `pve01`, `tank` is a mirror of the Samsung NVMe and the Kingston A400 for guest disks. The
+boot SSD keeps `local` and `local-lvm`.
+
+`proxmox_zfs_retired_lvm` lists empty LVM storages whose disks are handed over to ZFS. The role
+refuses to touch disks that are mounted, in another VG, or on a storage that still holds volumes.
+
+```sh
+just check proxmox --tags zfs
+just apply proxmox --tags zfs
+zpool status tank          # on the host
 ```
 
 ## Secrets

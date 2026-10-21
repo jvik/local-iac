@@ -1,0 +1,216 @@
+---
+# HARDWARE-SPECIFIC / DESTRUCTIVE: removes LVM storages, wipes disks and creates pools exactly as
+# listed in the host vars. Generic code, but only safe with host vars that match the physical disks.
+# The LVM retirement and wipe tasks exist for the one-off pve01 LVM -> ZFS migration.
+
+- name: Read Proxmox storage config
+  ansible.builtin.command:
+    argv: [pvesh, get, /storage, --output-format, json]
+  register: proxmox_zfs_storage_config
+  changed_when: false
+  check_mode: false
+  tags: [zfs, zfs_lvm, zfs_storage]
+
+- name: List LVM physical volumes
+  ansible.builtin.command:
+    argv: [pvs, --reportformat, json, -o, "pv_name,vg_name"]
+  register: proxmox_zfs_pvs
+  changed_when: false
+  check_mode: false
+  tags: [zfs, zfs_lvm, zfs_pool]
+
+- name: List ZFS pools
+  ansible.builtin.command:
+    argv: [zpool, list, -H, -o, name]
+  register: proxmox_zfs_existing_pools
+  changed_when: false
+  check_mode: false
+  tags: [zfs, zfs_pool]
+
+- name: Set ZFS facts
+  ansible.builtin.set_fact:
+    proxmox_zfs_storage_ids: "{{ proxmox_zfs_storage_config.stdout | from_json | map(attribute='storage') | list }}"
+    proxmox_zfs_pool_disks: >-
+      {{ proxmox_zfs_pools | map(attribute='vdevs') | flatten | map(attribute='disks') | flatten | unique }}
+    proxmox_zfs_retired_vgs: "{{ proxmox_zfs_retired_lvm | map(attribute='vg') | list }}"
+  tags: [zfs, zfs_lvm, zfs_pool, zfs_storage]
+
+- name: Resolve pool disks
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    follow: false
+  loop: "{{ proxmox_zfs_pool_disks }}"
+  register: proxmox_zfs_disk_stat
+  tags: [zfs, zfs_lvm, zfs_pool]
+
+- name: Refuse to use disks that are missing, mounted or in a VG that is not being retired
+  vars:
+    proxmox_zfs_dev: "{{ item.stat.lnk_source | default('') }}"
+    proxmox_zfs_dev_pattern: "^{{ proxmox_zfs_dev | regex_escape }}(p?[0-9]+)?$"
+    proxmox_zfs_dev_vgs: >-
+      {{ (proxmox_zfs_pvs.stdout | from_json).report[0].pv
+         | selectattr('pv_name', 'match', proxmox_zfs_dev_pattern)
+         | map(attribute='vg_name') | reject('equalto', '') | list }}
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.islnk
+      - proxmox_zfs_dev_vgs | difference(proxmox_zfs_retired_vgs) | length == 0
+      - ansible_facts.mounts | selectattr('device', 'match', proxmox_zfs_dev_pattern) | length == 0
+    fail_msg: >-
+      {{ item.item }} ({{ proxmox_zfs_dev or 'missing' }}) must be an existing /dev/disk/by-id link that is not
+      mounted and not in an LVM VG other than {{ proxmox_zfs_retired_vgs }} (found VGs {{ proxmox_zfs_dev_vgs }}).
+    quiet: true
+  loop: "{{ proxmox_zfs_disk_stat.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  tags: [zfs, zfs_lvm, zfs_pool]
+
+- name: List volumes on retired LVM storages
+  ansible.builtin.command:
+    argv:
+      - pvesh
+      - get
+      - "/nodes/{{ ansible_facts.hostname }}/storage/{{ item.storage }}/content"
+      - --output-format
+      - json
+  loop: "{{ proxmox_zfs_retired_lvm | selectattr('storage', 'in', proxmox_zfs_storage_ids) }}"
+  loop_control:
+    label: "{{ item.storage }}"
+  register: proxmox_zfs_retired_content
+  changed_when: false
+  check_mode: false
+  tags: [zfs, zfs_lvm]
+
+- name: Refuse to retire LVM storages that hold volumes
+  ansible.builtin.assert:
+    that: item.stdout | from_json | length == 0
+    fail_msg: "Storage {{ item.item.storage }} still holds volumes; move or delete them first."
+    quiet: true
+  loop: "{{ proxmox_zfs_retired_content.results }}"
+  loop_control:
+    label: "{{ item.item.storage }}"
+  tags: [zfs, zfs_lvm]
+
+- name: Remove retired LVM storages from Proxmox
+  ansible.builtin.command:
+    argv: [pvesm, remove, "{{ item.storage }}"]
+  loop: "{{ proxmox_zfs_retired_lvm | selectattr('storage', 'in', proxmox_zfs_storage_ids) }}"
+  loop_control:
+    label: "{{ item.storage }}"
+  changed_when: true
+  tags: [zfs, zfs_lvm]
+
+# No force: lvg fails if the VG still has logical volumes.
+- name: Remove retired volume groups
+  community.general.lvg:
+    vg: "{{ item.vg }}"
+    state: absent
+  loop: "{{ proxmox_zfs_retired_lvm }}"
+  loop_control:
+    label: "{{ item.vg }}"
+  tags: [zfs, zfs_lvm]
+
+- name: Remove retired physical volumes
+  community.general.lvm_pv:
+    device: "{{ item.1 }}"
+    state: absent
+  loop: "{{ proxmox_zfs_retired_lvm | subelements('pvs') }}"
+  loop_control:
+    label: "{{ item.1 }}"
+  tags: [zfs, zfs_lvm]
+
+- name: Find retired disks for pools that do not exist yet
+  ansible.builtin.set_fact:
+    proxmox_zfs_wipe_disks: >-
+      {{ proxmox_zfs_pools | rejectattr('name', 'in', proxmox_zfs_existing_pools.stdout_lines)
+         | map(attribute='vdevs') | flatten | map(attribute='disks') | flatten
+         | intersect(proxmox_zfs_retired_lvm | map(attribute='pvs') | flatten) }}
+  tags: [zfs, zfs_lvm, zfs_pool]
+
+# Leftover partition tables (e.g. a backup GPT header) make zpool create refuse the disk.
+# Only retired disks are wiped; any other disk with signatures still stops the role.
+- name: Wipe old signatures from retired disks
+  ansible.builtin.command:
+    argv: [wipefs, --all, "{{ item }}"]
+  loop: "{{ proxmox_zfs_wipe_disks }}"
+  changed_when: true
+  tags: [zfs, zfs_lvm, zfs_pool]
+
+# vdevs is only passed on creation: the module compares layouts by kernel device name, so passing
+# by-id paths for an existing pool would always report a change.
+# In check mode the wipe above is skipped, so the dry-run create is forced for those disks.
+- name: Create ZFS pools
+  community.general.zpool:
+    name: "{{ item.name }}"
+    vdevs: "{{ omit if item.name in proxmox_zfs_existing_pools.stdout_lines else item.vdevs }}"
+    force: >-
+      {{ item.force | default(false) | bool
+         or (ansible_check_mode
+             and item.vdevs | map(attribute='disks') | flatten | intersect(proxmox_zfs_wipe_disks) | length > 0) }}
+    pool_properties: "{{ proxmox_zfs_pool_properties | combine(item.pool_properties | default({})) }}"
+    filesystem_properties: "{{ proxmox_zfs_filesystem_properties | combine(item.filesystem_properties | default({})) }}"
+  loop: "{{ proxmox_zfs_pools }}"
+  loop_control:
+    label: "{{ item.name }}"
+  tags: [zfs, zfs_pool]
+
+- name: Import ZFS pools at boot
+  ansible.builtin.systemd_service:
+    name: "zfs-import@{{ item.name }}.service"
+    enabled: true
+  loop: "{{ proxmox_zfs_pools }}"
+  loop_control:
+    label: "{{ item.name }}"
+  tags: [zfs, zfs_pool]
+
+- name: Add ZFS pools as Proxmox storage
+  vars:
+    proxmox_zfs_storage: "{{ item.storage | default({}) }}"
+  ansible.builtin.command:
+    argv:
+      - pvesm
+      - add
+      - zfspool
+      - "{{ proxmox_zfs_storage.id | default(item.name) }}"
+      - --pool
+      - "{{ item.name }}"
+      - --content
+      - "{{ proxmox_zfs_storage.content | default(['images', 'rootdir']) | join(',') }}"
+      - --sparse
+      - "{{ proxmox_zfs_storage.sparse | default(true) | int }}"
+  loop: "{{ proxmox_zfs_pools }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: (proxmox_zfs_storage.id | default(item.name)) not in proxmox_zfs_storage_ids
+  changed_when: true
+  tags: [zfs, zfs_storage]
+
+- name: Update ZFS pool Proxmox storage settings
+  vars:
+    proxmox_zfs_storage: "{{ item.storage | default({}) }}"
+    proxmox_zfs_storage_id: "{{ proxmox_zfs_storage.id | default(item.name) }}"
+    proxmox_zfs_content: "{{ proxmox_zfs_storage.content | default(['images', 'rootdir']) | sort }}"
+    proxmox_zfs_sparse: "{{ proxmox_zfs_storage.sparse | default(true) | int }}"
+    proxmox_zfs_current: >-
+      {{ proxmox_zfs_storage_config.stdout | from_json
+         | selectattr('storage', 'equalto', proxmox_zfs_storage_id) | first | default({}) }}
+  ansible.builtin.command:
+    argv:
+      - pvesm
+      - set
+      - "{{ proxmox_zfs_storage_id }}"
+      - --content
+      - "{{ proxmox_zfs_content | join(',') }}"
+      - --sparse
+      - "{{ proxmox_zfs_sparse }}"
+  loop: "{{ proxmox_zfs_pools }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when:
+    - proxmox_zfs_current | length > 0
+    - >-
+      (proxmox_zfs_current.content | default('')).split(',') | sort != proxmox_zfs_content
+      or (proxmox_zfs_current.sparse | default(0) | int) != (proxmox_zfs_sparse | int)
+  changed_when: true
+  tags: [zfs, zfs_storage]

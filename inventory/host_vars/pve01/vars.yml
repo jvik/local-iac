@@ -1,0 +1,30 @@
+---
+# =================================================================================================
+# HARDWARE-SPECIFIC / ONE-OFF: pve01 (HP Z1 G8) disk layout as of 2026-10-21.
+# Disk IDs are tied to the physical drives. Review and update this file before running against
+# other hardware, after replacing a disk, or after reinstalling the host.
+# =================================================================================================
+# NVMe (954 GB) + A400 (894 GB) mirror: usable size is the smaller disk. Replace the A400 with a
+# disk of at least 960 GB later and the pool grows (autoexpand).
+proxmox_zfs_pools:
+  - name: tank
+    # zpool create refuses a mirror of different-sized disks without -f.
+    force: true
+    vdevs:
+      - type: mirror
+        disks:
+          - /dev/disk/by-id/nvme-SAMSUNG_MZVL21T0HCLR-00BH1_S641NX0RC24624
+          - /dev/disk/by-id/ata-KINGSTON_SA400S37960G_50026B7380C5ADD3
+    storage:
+      content: [images, rootdir]
+      sparse: true
+
+# ONE-OFF MIGRATION (done 2026-10-21): the installer-created, empty LVM storages that were on these
+# disks. Now a no-op; kept so a reinstall replays the same migration. Delete once no longer needed.
+proxmox_zfs_retired_lvm:
+  - storage: lvm-01
+    vg: lvm-01
+    pvs: [/dev/disk/by-id/nvme-SAMSUNG_MZVL21T0HCLR-00BH1_S641NX0RC24624]
+  - storage: lvm-02
+    vg: lvm-02
+    pvs: [/dev/disk/by-id/ata-KINGSTON_SA400S37960G_50026B7380C5ADD3]

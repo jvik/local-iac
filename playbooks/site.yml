@@ -1,3 +1,7 @@
 ---
 - name: Bootstrap
   ansible.builtin.import_playbook: bootstrap.yml
+
+# Hardware-specific: see the header in proxmox.yml.
+- name: Proxmox host
+  ansible.builtin.import_playbook: proxmox.yml
