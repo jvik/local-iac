@@ -1,0 +1,66 @@
+---
+# Sets ansible_host for a VM from the QEMU guest agent, through the API token on the control node,
+# unless inventory/hosts.yml already has one. The address is taken from the interface with net0's
+# MAC: k3s and other software add interfaces with addresses that are not reachable from outside.
+#
+# Checked in hostvars: during task execution ansible_host falls back to inventory_hostname, but not
+# for meta tasks, so `ansible_host is defined` would be true here and false for end_host.
+
+- name: Find address through the guest agent
+  when: "'ansible_host' not in hostvars[inventory_hostname]"
+  vars:
+    proxmox_vm_address_vm: "{{ proxmox_vm_address_info.proxmox_vms | first | default({}) }}"
+    proxmox_vm_address_running: "{{ proxmox_vm_address_vm.status | default('') == 'running' }}"
+    proxmox_vm_address_mac: >-
+      {{ proxmox_vm_address_vm.config.net0 | default('')
+         | regex_search('([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}') | default('', true) | lower }}
+    proxmox_vm_address_ipv4: >-
+      {{ proxmox_vm_address_vm.network | default([])
+         | selectattr('hardware-address', 'defined')
+         | selectattr('hardware-address', 'equalto', proxmox_vm_address_mac)
+         | map(attribute='ip-addresses', default=[]) | flatten
+         | selectattr('ip-address-type', 'equalto', 'ipv4')
+         | map(attribute='ip-address') | first | default('') }}
+  block:
+    - name: Read VM status and guest agent interfaces
+      community.proxmox.proxmox_vm_info:
+        api_host: "{{ proxmox_api_host }}"
+        api_user: "{{ proxmox_api_user }}"
+        api_token_id: "{{ proxmox_api_token_name }}"
+        api_token_secret: "{{ proxmox_api_token_secret }}"
+        # The host uses the self-signed certificate from the Proxmox installer.
+        validate_certs: false
+        node: "{{ proxmox_api_node }}"
+        vmid: "{{ proxmox_vm_id }}"
+        type: qemu
+        config: current
+        network: true
+      delegate_to: localhost
+      become: false
+      register: proxmox_vm_address_info
+      until: not proxmox_vm_address_running or proxmox_vm_address_ipv4 | length > 0
+      retries: "{{ proxmox_vm_address_retries }}"
+      delay: "{{ proxmox_vm_address_delay }}"
+
+    # In check mode on a new VM, or when it is stopped.
+    - name: Skip VMs that are not running
+      when: not proxmox_vm_address_running
+      block:
+        - name: Report VM not running
+          ansible.builtin.debug:
+            msg: "VM {{ proxmox_vm_id }} ({{ inventory_hostname }}) does not exist or is not running; skipping."
+
+        - name: End play for this VM
+          ansible.builtin.meta: end_host
+
+    - name: Refuse a VM without a guest agent address
+      ansible.builtin.assert:
+        that: proxmox_vm_address_ipv4 | length > 0
+        fail_msg: >-
+          The guest agent on VM {{ proxmox_vm_id }} reports no IPv4 address on {{ proxmox_vm_address_mac }}.
+          Check that qemu-guest-agent runs in the VM and that it got a DHCP lease.
+        quiet: true
+
+    - name: Use guest agent address
+      ansible.builtin.set_fact:
+        ansible_host: "{{ proxmox_vm_address_ipv4 }}"

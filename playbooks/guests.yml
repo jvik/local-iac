@@ -22,11 +22,14 @@
     - role: proxmox_vm
       tags: [vms]
 
-# Connects to the VMs over SSH as the cloud-init user.
+# Connects to the VMs over SSH as the cloud-init user. proxmox_vm_address runs with every tag so a
+# partial run still knows the address.
 - name: Configure VMs
   hosts: proxmox_vms
   gather_facts: false
   become: true
   roles:
+    - role: proxmox_vm_address
+      tags: [always]
     - role: qemu_guest_agent
       tags: [guest_agent]

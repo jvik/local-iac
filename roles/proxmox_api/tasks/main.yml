@@ -14,6 +14,16 @@
       {{ proxmox_api_roles.stdout | from_json
          | selectattr('roleid', 'equalto', proxmox_api_role) | first | default(none) }}
 
+- name: Pick privileges for this Proxmox version
+  vars:
+    proxmox_api_known_privileges: >-
+      {{ proxmox_api_roles.stdout | from_json | map(attribute='privs')
+         | map('split', ',') | flatten | unique }}
+  ansible.builtin.set_fact:
+    proxmox_api_effective_privileges: >-
+      {{ proxmox_api_privileges
+         + (proxmox_api_privileges_guest_agent | select('in', proxmox_api_known_privileges) | list)[:1] }}
+
 - name: Create Proxmox role
   ansible.builtin.command:
     argv:
@@ -23,7 +33,7 @@
         add,
         "{{ proxmox_api_role }}",
         --privs,
-        "{{ proxmox_api_privileges | join(',') }}",
+        "{{ proxmox_api_effective_privileges | join(',') }}",
       ]
   changed_when: true
   when: proxmox_api_existing_role is none
@@ -37,12 +47,12 @@
         modify,
         "{{ proxmox_api_role }}",
         --privs,
-        "{{ proxmox_api_privileges | join(',') }}",
+        "{{ proxmox_api_effective_privileges | join(',') }}",
       ]
   changed_when: true
   when:
     - proxmox_api_existing_role is not none
-    - (proxmox_api_existing_role.privs.split(',') | sort) != (proxmox_api_privileges | sort)
+    - (proxmox_api_existing_role.privs.split(',') | sort) != (proxmox_api_effective_privileges | sort)
 
 - name: List Proxmox users
   ansible.builtin.command:

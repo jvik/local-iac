@@ -57,7 +57,9 @@ just bootstrap
 This:
 
 1. Disables SSH password and keyboard-interactive login. Root login with a key is still allowed.
-2. Creates the Proxmox role `Ansible` with the privileges in `roles/proxmox_api/defaults/main.yml`.
+2. Creates the Proxmox role `Ansible` with the privileges in `roles/proxmox_api/defaults/main.yml`,
+   plus the guest agent privilege this Proxmox version knows (`VM.GuestAgent.Audit` on PVE 9,
+   `VM.Monitor` on PVE 8). Re-running it updates the privileges of an existing role.
 3. Creates the user `ansible@pve` (it has no password) and grants it the `Ansible` role on `/`.
 4. Creates the API token `ansible@pve!ansible` (inherits the user's privileges).
 5. Encrypts the token secret into `inventory/group_vars/all/vault.yml` as

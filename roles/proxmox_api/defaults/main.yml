@@ -32,3 +32,9 @@ proxmox_api_privileges:
   - VM.PowerMgmt
   - VM.Snapshot
   - VM.Snapshot.Rollback
+
+# Lets proxmox_vm_address read VM addresses from the QEMU guest agent. The first privilege that one
+# of the node's existing roles has is added: VM.GuestAgent.Audit on PVE 9, VM.Monitor on PVE 8.
+proxmox_api_privileges_guest_agent:
+  - VM.GuestAgent.Audit
+  - VM.Monitor

@@ -164,22 +164,25 @@ just apply update --tags upgrade -e proxmox_updates_reboot=true
   starts the VM. Proxmox generates the user data (user, SSH keys, DHCP); `proxmox_vm_vendor_data`
   is written to a snippet and merged in as vendor data. It is create-only: changing hardware or
   cloud-init settings later does not touch an existing VM.
+- `proxmox_vm_address` (API token, from the control node) sets `ansible_host` from the QEMU
+  guest agent: the IPv4 address on the interface with `net0`'s MAC. It waits for the agent on a new
+  VM, skips VMs that do not exist or are stopped, and is not used when `inventory/hosts.yml` has an
+  `ansible_host` for the VM. It runs with every tag.
 - `qemu_guest_agent` (SSH as `ubuntu` with sudo) waits for cloud-init and keeps
-  `qemu-guest-agent` installed and running. VMs without `ansible_host` in `inventory/hosts.yml`
-  are skipped with a message: find the address under the VM's Summary in Proxmox, reserve it in
-  DHCP and add it to the inventory.
+  `qemu-guest-agent` installed and running.
 
 `k3s01` (group `k3s`, VMID 110) is Ubuntu 26.04 LTS with 4 cores, 8 GiB RAM and a 100 GB disk on
 `tank`, on the `servers` VNet with a pinned MAC for a DHCP reservation. Cloud-init installs the
 QEMU guest agent and a single-node k3s server pinned to `k3s_version` (`group_vars/k3s`).
 
 Before the first run, add your public key to `proxmox_vm_ssh_public_keys` in
-`inventory/group_vars/proxmox_vms/vars.yml`.
+`inventory/group_vars/proxmox_vms/vars.yml`. The API token needs the guest agent privilege; on a
+host bootstrapped before it was added, run `just apply bootstrap --tags api` once.
 
 ```sh
 just check guests
 just apply guests
-ssh ubuntu@<vm address> sudo k3s kubectl get nodes   # once cloud-init has finished
+ssh ubuntu@<vm address> sudo k3s kubectl get nodes   # address under the VM's Summary in Proxmox
 ```
 
 To rebuild a VM, delete it in Proxmox and run `just apply guests` again.
@@ -203,7 +206,6 @@ just vault-edit
 | SSH access | Your existing SSH key, in `/root/.ssh/authorized_keys` on the host |
 | API token secret | `vault_proxmox_api_token_secret` in `vault.yml` (encrypted, committed) |
 | Vault password | `~/.config/local-iac/vault-pass` (0600, outside the repo, never committed) |
-
 `just setup` generates the vault password if it is missing. **Back it up in a password manager**:
 without it the vault cannot be decrypted. The `ansible@pve` user has no password; it is only
 used through its API token.

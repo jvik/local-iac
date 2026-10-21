@@ -1,0 +1,4 @@
+---
+# Cloud-init installs the guest agent on the first boot, so a new VM can take a few minutes.
+proxmox_vm_address_retries: 60
+proxmox_vm_address_delay: 10
