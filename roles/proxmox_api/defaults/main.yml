@@ -1,0 +1,34 @@
+---
+proxmox_api_user: ansible@pve
+proxmox_api_role: Ansible
+proxmox_api_token_name: ansible
+# Written on the control node only when the token is first created; move it into the vault.
+proxmox_api_token_secret_file: >-
+  {{ lookup('ansible.builtin.env', 'HOME') }}/.config/local-iac/{{ inventory_hostname }}-api-token
+
+# Must be valid on both PVE 8 and 9 (VM.Monitor was removed in 9).
+proxmox_api_privileges:
+  - Datastore.AllocateSpace
+  - Datastore.AllocateTemplate
+  - Datastore.Audit
+  - Pool.Allocate
+  - Pool.Audit
+  - SDN.Audit
+  - SDN.Use
+  - Sys.Audit
+  - VM.Allocate
+  - VM.Audit
+  - VM.Backup
+  - VM.Clone
+  - VM.Config.CDROM
+  - VM.Config.CPU
+  - VM.Config.Cloudinit
+  - VM.Config.Disk
+  - VM.Config.HWType
+  - VM.Config.Memory
+  - VM.Config.Network
+  - VM.Config.Options
+  - VM.Console
+  - VM.PowerMgmt
+  - VM.Snapshot
+  - VM.Snapshot.Rollback

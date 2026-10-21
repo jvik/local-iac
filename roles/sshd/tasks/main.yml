@@ -1,0 +1,23 @@
+---
+- name: Check root authorized_keys
+  ansible.builtin.stat:
+    path: /root/.ssh/authorized_keys
+    follow: true
+  register: sshd_root_authorized_keys
+
+- name: Refuse to disable password login without authorized keys
+  ansible.builtin.assert:
+    that:
+      - sshd_root_authorized_keys.stat.exists
+      - sshd_root_authorized_keys.stat.size > 0
+    fail_msg: /root/.ssh/authorized_keys is missing or empty; disabling password login would lock you out.
+  when: not sshd_password_authentication
+
+- name: Install sshd drop-in config
+  ansible.builtin.template:
+    src: local-iac.conf.j2
+    dest: /etc/ssh/sshd_config.d/10-local-iac.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Sshd config changed

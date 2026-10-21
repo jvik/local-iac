@@ -1,0 +1,6 @@
+---
+proxmox_api_host: 10.0.10.233
+proxmox_api_node: pve01
+proxmox_api_user: ansible@pve
+proxmox_api_token_name: ansible
+proxmox_api_token_secret: "{{ vault_proxmox_api_token_secret }}"

@@ -1,0 +1,8 @@
+[tools]
+python = "3.13"
+uv = "latest"
+just = "latest"
+
+[env]
+_.python.venv = { path = ".venv", create = true }
+ANSIBLE_VAULT_PASSWORD_FILE = "{{ env.HOME }}/.config/local-iac/vault-pass"

@@ -1,0 +1,4 @@
+{{ ansible_managed | comment }}
+PermitRootLogin {{ sshd_permit_root_login }}
+PasswordAuthentication {{ 'yes' if sshd_password_authentication else 'no' }}
+KbdInteractiveAuthentication {{ 'yes' if sshd_password_authentication else 'no' }}

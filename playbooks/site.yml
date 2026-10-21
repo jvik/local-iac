@@ -1,0 +1,3 @@
+---
+- name: Bootstrap
+  ansible.builtin.import_playbook: bootstrap.yml

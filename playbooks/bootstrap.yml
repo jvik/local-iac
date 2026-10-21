@@ -1,0 +1,9 @@
+---
+- name: Bootstrap Ansible access to Proxmox
+  hosts: proxmox
+  gather_facts: false
+  roles:
+    - role: sshd
+      tags: [ssh]
+    - role: proxmox_api
+      tags: [api]

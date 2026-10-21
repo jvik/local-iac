@@ -1,0 +1,20 @@
+[project]
+name = "local-iac"
+version = "0.1.0"
+description = "Homelab IaC for a Proxmox VE host, managed with Ansible"
+requires-python = ">=3.13"
+dependencies = [
+  "ansible-core>=2.19",
+  # Required on the control node by community.proxmox modules
+  "proxmoxer>=2.2",
+  "requests>=2.32",
+]
+
+[dependency-groups]
+dev = [
+  "ansible-lint>=25.0",
+  "yamllint>=1.35",
+]
+
+[tool.uv]
+package = false

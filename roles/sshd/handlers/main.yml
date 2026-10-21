@@ -1,0 +1,12 @@
+---
+- name: Validate sshd config
+  ansible.builtin.command:
+    argv: [/usr/sbin/sshd, -t]
+  changed_when: false
+  listen: Sshd config changed
+
+- name: Reload sshd
+  ansible.builtin.systemd_service:
+    name: ssh
+    state: reloaded
+  listen: Sshd config changed

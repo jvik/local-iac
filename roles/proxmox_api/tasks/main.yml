@@ -1,0 +1,115 @@
+---
+# No API credentials exist yet, so access is managed with pveum over SSH as root.
+
+- name: List Proxmox roles
+  ansible.builtin.command:
+    argv: [pveum, role, list, --output-format, json]
+  register: proxmox_api_roles
+  changed_when: false
+  check_mode: false
+
+- name: Find existing Ansible role
+  ansible.builtin.set_fact:
+    proxmox_api_existing_role: >-
+      {{ proxmox_api_roles.stdout | from_json
+         | selectattr('roleid', 'equalto', proxmox_api_role) | first | default(none) }}
+
+- name: Create Proxmox role
+  ansible.builtin.command:
+    argv: [pveum, role, add, "{{ proxmox_api_role }}", --privs, "{{ proxmox_api_privileges | join(',') }}"]
+  changed_when: true
+  when: proxmox_api_existing_role is none
+
+- name: Update Proxmox role privileges
+  ansible.builtin.command:
+    argv: [pveum, role, modify, "{{ proxmox_api_role }}", --privs, "{{ proxmox_api_privileges | join(',') }}"]
+  changed_when: true
+  when:
+    - proxmox_api_existing_role is not none
+    - (proxmox_api_existing_role.privs.split(',') | sort) != (proxmox_api_privileges | sort)
+
+- name: List Proxmox users
+  ansible.builtin.command:
+    argv: [pveum, user, list, --output-format, json]
+  register: proxmox_api_users
+  changed_when: false
+  check_mode: false
+
+- name: Create Proxmox user
+  ansible.builtin.command:
+    argv: [pveum, user, add, "{{ proxmox_api_user }}", --comment, Ansible automation]
+  changed_when: true
+  when: proxmox_api_user not in (proxmox_api_users.stdout | from_json | map(attribute='userid'))
+
+- name: List Proxmox ACLs
+  ansible.builtin.command:
+    argv: [pveum, acl, list, --output-format, json]
+  register: proxmox_api_acls
+  changed_when: false
+  check_mode: false
+
+- name: Grant role to user on /
+  ansible.builtin.command:
+    argv: [pveum, acl, modify, /, --users, "{{ proxmox_api_user }}", --roles, "{{ proxmox_api_role }}"]
+  changed_when: true
+  when: >-
+    proxmox_api_acls.stdout | from_json
+    | selectattr('path', 'equalto', '/')
+    | selectattr('type', 'equalto', 'user')
+    | selectattr('ugid', 'equalto', proxmox_api_user)
+    | selectattr('roleid', 'equalto', proxmox_api_role)
+    | list | length == 0
+
+- name: List API tokens
+  ansible.builtin.command:
+    argv: [pveum, user, token, list, "{{ proxmox_api_user }}", --output-format, json]
+  register: proxmox_api_tokens
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Create API token
+  ansible.builtin.command:
+    argv:
+      - pveum
+      - user
+      - token
+      - add
+      - "{{ proxmox_api_user }}"
+      - "{{ proxmox_api_token_name }}"
+      - --privsep
+      - "0"
+      - --comment
+      - Ansible automation
+      - --output-format
+      - json
+  register: proxmox_api_token_created
+  changed_when: true
+  no_log: true
+  when: >-
+    proxmox_api_tokens.rc != 0
+    or proxmox_api_token_name not in (proxmox_api_tokens.stdout | from_json | map(attribute='tokenid'))
+
+- name: Save new token secret on the control node
+  when: proxmox_api_token_created is not skipped
+  delegate_to: localhost
+  become: false
+  block:
+    - name: Create token secret directory
+      ansible.builtin.file:
+        path: "{{ proxmox_api_token_secret_file | dirname }}"
+        state: directory
+        mode: "0700"
+
+    - name: Write token secret
+      ansible.builtin.copy:
+        content: "{{ (proxmox_api_token_created.stdout | from_json).value }}\n"
+        dest: "{{ proxmox_api_token_secret_file }}"
+        mode: "0600"
+      no_log: true
+
+    - name: Remind to store token secret in vault
+      ansible.builtin.debug:
+        msg: >-
+          Token secret written to {{ proxmox_api_token_secret_file }}.
+          Run `just store-token` to move it into the vault.
