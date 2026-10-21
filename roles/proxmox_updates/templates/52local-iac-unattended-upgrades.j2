@@ -1,0 +1,10 @@
+{{ ansible_managed | comment }}
+Unattended-Upgrade::Origins-Pattern {
+{% for origin in proxmox_updates_unattended_origins %}
+        "{{ origin }}";
+{% endfor %}
+};
+Unattended-Upgrade::Remove-Unused-Dependencies "false";
+Unattended-Upgrade::Automatic-Reboot "{{ proxmox_updates_unattended_reboot | lower }}";
+Unattended-Upgrade::Automatic-Reboot-WithUsers "{{ proxmox_updates_unattended_reboot | lower }}";
+Unattended-Upgrade::Automatic-Reboot-Time "{{ proxmox_updates_unattended_reboot_time }}";

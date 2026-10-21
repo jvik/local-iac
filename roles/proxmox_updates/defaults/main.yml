@@ -1,0 +1,23 @@
+---
+# Automatic updates between playbook runs (unattended-upgrades).
+proxmox_updates_unattended: true
+
+# apt origin patterns unattended-upgrades may install from. ${distro_codename} is expanded by
+# unattended-upgrades, not by Ansible.
+proxmox_updates_unattended_origins:
+  - origin=Debian,codename=${distro_codename},label=Debian
+  - origin=Debian,codename=${distro_codename}-updates,label=Debian
+  - origin=Debian,codename=${distro_codename}-security,label=Debian-Security
+  - origin=Proxmox,codename=${distro_codename}
+
+# Reboot on its own when an update needs it. Rebooting stops every guest, so this is off by default.
+proxmox_updates_unattended_reboot: false
+proxmox_updates_unattended_reboot_time: "04:00"
+
+# Manual upgrade (tasks_from: upgrade). Reboot afterwards if a newer kernel than the running one
+# is installed. Rebooting stops every guest, so this is off by default.
+proxmox_updates_reboot: false
+proxmox_updates_reboot_timeout: 900
+
+# Remove packages that are no longer needed after the manual upgrade.
+proxmox_updates_autoremove: true

@@ -1,0 +1,44 @@
+---
+# Proxmox requires dist-upgrade: a plain upgrade holds back packages that need new dependencies.
+- name: Upgrade all packages
+  ansible.builtin.apt:
+    update_cache: true
+    upgrade: dist
+    autoremove: "{{ proxmox_updates_autoremove }}"
+
+- name: Get the running kernel
+  ansible.builtin.command: uname -r
+  register: proxmox_updates_running_kernel
+  changed_when: false
+  check_mode: false
+
+- name: Get the newest installed Proxmox kernel
+  ansible.builtin.shell:
+    cmd: set -o pipefail; ls -1v /boot/vmlinuz-*-pve | tail -n 1
+    executable: /bin/bash
+  register: proxmox_updates_newest_kernel
+  changed_when: false
+  check_mode: false
+
+- name: Work out whether a reboot is needed
+  ansible.builtin.set_fact:
+    proxmox_updates_reboot_required: >-
+      {{ (proxmox_updates_newest_kernel.stdout | basename)
+         != 'vmlinuz-' ~ proxmox_updates_running_kernel.stdout }}
+
+- name: Reboot into the new kernel
+  ansible.builtin.reboot:
+    reboot_timeout: "{{ proxmox_updates_reboot_timeout }}"
+  when:
+    - proxmox_updates_reboot_required
+    - proxmox_updates_reboot
+
+- name: Report a pending reboot
+  ansible.builtin.debug:
+    msg: >-
+      A newer kernel is installed ({{ proxmox_updates_newest_kernel.stdout | basename }}) than
+      the one running ({{ proxmox_updates_running_kernel.stdout }}). Reboot the host, or set
+      proxmox_updates_reboot to true. A reboot stops all guests.
+  when:
+    - proxmox_updates_reboot_required
+    - not proxmox_updates_reboot

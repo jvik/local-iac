@@ -1,0 +1,22 @@
+---
+# =================================================================================================
+# Updates the Proxmox host: configures unattended-upgrades (tag: auto) and runs an immediate
+# apt dist-upgrade (tag: upgrade). Not part of site.yml because a kernel update needs a reboot,
+# which stops every guest. Rebooting only happens with -e proxmox_updates_reboot=true.
+# Requires a working apt repository (pve-no-subscription, or an enterprise subscription).
+# =================================================================================================
+- name: Update Proxmox host
+  hosts: proxmox
+  gather_facts: true
+  serial: 1
+  tasks:
+    - name: Configure automatic updates
+      ansible.builtin.include_role:
+        name: proxmox_updates
+      tags: [auto]
+
+    - name: Upgrade packages now
+      ansible.builtin.include_role:
+        name: proxmox_updates
+        tasks_from: upgrade
+      tags: [upgrade]

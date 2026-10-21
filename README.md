@@ -60,6 +60,7 @@ step-by-step procedure, verification and recovery.
 │   ├── site.yml             # Runs everything
 │   ├── inventory.yml        # Read-only hardware/storage/network/guest report
 │   ├── proxmox.yml          # Host configuration (hardware-specific)
+│   ├── update.yml           # Automatic updates and an on-demand apt dist-upgrade
 │   └── guests.yml           # VM / LXC provisioning
 ├── reports/                 # Generated host reports (git-ignored)
 └── roles/
@@ -129,6 +130,26 @@ refuses to touch disks that are mounted, in another VG, or on a storage that sti
 just check proxmox --tags zfs
 just apply proxmox --tags zfs
 zpool status tank          # on the host
+```
+
+## Updates
+
+`playbooks/update.yml` (not part of `site.yml`) uses the `proxmox_updates` role to:
+
+- **`auto` tag**: install and configure `unattended-upgrades` (Debian, Debian-Security and Proxmox
+  origins) so the host updates itself daily. It never reboots on its own unless
+  `proxmox_updates_unattended_reboot` is true.
+- **`upgrade` tag**: run an `apt dist-upgrade` now and report whether a newer kernel is waiting
+  for a reboot. It reboots only with `-e proxmox_updates_reboot=true`.
+
+A reboot stops every guest. The host needs a working apt repository (`pve-no-subscription` or an
+enterprise subscription); the playbook does not manage repositories.
+
+```sh
+just check update
+just apply update --tags auto                          # configure automatic updates only
+just apply update --tags upgrade                       # upgrade now, no reboot
+just apply update --tags upgrade -e proxmox_updates_reboot=true
 ```
 
 ## Secrets
