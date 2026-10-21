@@ -61,7 +61,9 @@ step-by-step procedure, verification and recovery.
 │   ├── inventory.yml        # Read-only hardware/storage/network/guest report
 │   ├── proxmox.yml          # Host configuration (hardware-specific)
 │   ├── update.yml           # Automatic updates and an on-demand apt dist-upgrade
-│   └── guests.yml           # Cloud images and VM provisioning
+│   └── guests.yml           # Cloud images, VM provisioning and the k3s kubeconfig
+├── kubernetes/
+│   └── apps/<app>/          # Kustomize directories applied to k3s
 ├── reports/                 # Generated host reports (git-ignored)
 └── roles/
     └── <role>/              # One role per concern
@@ -179,6 +181,9 @@ Before the first run, add your public key to `proxmox_vm_ssh_public_keys` in
 `inventory/group_vars/proxmox_vms/vars.yml`. The API token needs the guest agent privilege; on a
 host bootstrapped before it was added, run `just apply bootstrap --tags api` once.
 
+A DHCP reservation is still worth having: the kubeconfig points at the address it had when it was
+fetched.
+
 ```sh
 just check guests
 just apply guests
@@ -186,6 +191,27 @@ ssh ubuntu@<vm address> sudo k3s kubectl get nodes   # address under the VM's Su
 ```
 
 To rebuild a VM, delete it in Proxmox and run `just apply guests` again.
+
+## Kubernetes
+
+The last play in `playbooks/guests.yml` (`k3s_kubeconfig`, tag `kubeconfig`) copies the k3s admin
+kubeconfig to `~/.config/local-iac/kubeconfig` (0600), pointed at the VM's address from
+`proxmox_vm_address`. mise installs `kubectl` and sets `KUBECONFIG` to that file inside the repo.
+The kubeconfig holds a cluster-admin client key: treat it like the vault password. Run
+`just kubeconfig` again after rebuilding the VM or when its address changes.
+
+Manifests live in `kubernetes/apps/<app>/` as Kustomize directories, ready to be picked up by
+Argo CD later. `hello` is a smoke test: `traefik/whoami` behind the bundled Traefik ingress on
+`hello.home.arpa`.
+
+```sh
+just kubeconfig
+kubectl get nodes
+just kube-apply hello
+kubectl -n hello rollout status deployment/hello
+curl --resolve hello.home.arpa:80:<vm address> http://hello.home.arpa/
+just kube-delete hello
+```
 
 ## Secrets
 
@@ -206,6 +232,8 @@ just vault-edit
 | SSH access | Your existing SSH key, in `/root/.ssh/authorized_keys` on the host |
 | API token secret | `vault_proxmox_api_token_secret` in `vault.yml` (encrypted, committed) |
 | Vault password | `~/.config/local-iac/vault-pass` (0600, outside the repo, never committed) |
+| k3s admin kubeconfig | `~/.config/local-iac/kubeconfig` (0600, fetched by `just kubeconfig`) |
+
 `just setup` generates the vault password if it is missing. **Back it up in a password manager**:
 without it the vault cannot be decrypted. The `ansible@pve` user has no password; it is only
 used through its API token.

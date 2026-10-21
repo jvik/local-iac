@@ -1,0 +1,20 @@
+---
+# Traefik listens on ports 80 and 443 of the node through ServiceLB. There is no DNS record for the
+# host yet; send it with curl --resolve or a Host header.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: hello
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: hello.home.arpa
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: hello
+                port:
+                  name: http

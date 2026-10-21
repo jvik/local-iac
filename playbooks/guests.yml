@@ -33,3 +33,13 @@
       tags: [always]
     - role: qemu_guest_agent
       tags: [guest_agent]
+
+- name: Fetch k3s kubeconfig
+  hosts: k3s
+  gather_facts: false
+  become: true
+  roles:
+    - role: proxmox_vm_address
+      tags: [always]
+    - role: k3s_kubeconfig
+      tags: [kubeconfig]

@@ -1,0 +1,3 @@
+---
+# Written on the control node; mise.toml points KUBECONFIG here. Assumes a single k3s server.
+k3s_kubeconfig_file: "{{ lookup('ansible.builtin.env', 'HOME') }}/.config/local-iac/kubeconfig"

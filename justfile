@@ -29,6 +29,17 @@ bootstrap *args: (_playbook "bootstrap" args) store-token
 # Read-only report of host hardware, storage, network and guests, written to reports/<host>.md
 inventory *args: (_playbook "inventory" args)
 
+# Fetch the k3s admin kubeconfig to ~/.config/local-iac/kubeconfig
+kubeconfig *args: (_playbook "guests" "--tags" "kubeconfig" args)
+
+# Apply a Kustomize app from kubernetes/apps to the k3s cluster
+kube-apply app:
+    kubectl apply -k kubernetes/apps/{{ app }}
+
+# Delete a Kustomize app from kubernetes/apps from the k3s cluster
+kube-delete app:
+    kubectl delete -k kubernetes/apps/{{ app }}
+
 # Dry run a playbook with diff
 check playbook="site" *args: (_playbook playbook "--check" "--diff" args)
 

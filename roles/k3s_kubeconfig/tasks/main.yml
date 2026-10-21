@@ -1,0 +1,51 @@
+---
+# Copies the k3s admin kubeconfig to the control node, pointed at the VM's address instead of
+# 127.0.0.1. k3s includes the node's addresses in its API server certificate. Needs ansible_host,
+# from the inventory or proxmox_vm_address.
+
+- name: Wait for k3s kubeconfig
+  ansible.builtin.wait_for:
+    path: /etc/rancher/k3s/k3s.yaml
+    timeout: 600
+
+- name: Read k3s kubeconfig
+  ansible.builtin.slurp:
+    src: /etc/rancher/k3s/k3s.yaml
+  register: k3s_kubeconfig_raw
+  no_log: true
+
+- name: Write kubeconfig on the control node
+  delegate_to: localhost
+  become: false
+  vars:
+    k3s_kubeconfig_source: "{{ k3s_kubeconfig_raw.content | b64decode | from_yaml }}"
+    k3s_kubeconfig_auth: "{{ k3s_kubeconfig_source.users | first }}"
+    k3s_kubeconfig_cluster: "{{ k3s_kubeconfig_source.clusters | first }}"
+  block:
+    - name: Create kubeconfig directory
+      ansible.builtin.file:
+        path: "{{ k3s_kubeconfig_file | dirname }}"
+        state: directory
+        mode: "0700"
+
+    - name: Write kubeconfig
+      ansible.builtin.copy:
+        content: |
+          {{ {
+            'apiVersion': 'v1',
+            'kind': 'Config',
+            'clusters': [{
+              'name': inventory_hostname,
+              'cluster': k3s_kubeconfig_cluster.cluster
+                | combine({'server': 'https://' ~ ansible_host ~ ':6443'}),
+            }],
+            'users': [{'name': inventory_hostname, 'user': k3s_kubeconfig_auth.user}],
+            'contexts': [{
+              'name': inventory_hostname,
+              'context': {'cluster': inventory_hostname, 'user': inventory_hostname},
+            }],
+            'current-context': inventory_hostname,
+          } | to_nice_yaml(indent=2) }}
+        dest: "{{ k3s_kubeconfig_file }}"
+        mode: "0600"
+      no_log: true
