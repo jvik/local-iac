@@ -58,8 +58,10 @@ step-by-step procedure, verification and recovery.
 │   └── host_vars/
 ├── playbooks/
 │   ├── site.yml             # Runs everything
+│   ├── inventory.yml        # Read-only hardware/storage/network/guest report
 │   ├── proxmox.yml          # Host configuration
 │   └── guests.yml           # VM / LXC provisioning
+├── reports/                 # Generated host reports (git-ignored)
 └── roles/
     └── <role>/              # One role per concern
 ```
@@ -68,6 +70,7 @@ step-by-step procedure, verification and recovery.
 
 ```sh
 just ping                              # Check connectivity
+just inventory                         # Read-only host report -> reports/<host>.md
 just check                             # Dry run site.yml with a diff
 just apply                             # Apply site.yml
 just check bootstrap --tags api        # Any playbook, extra args pass through

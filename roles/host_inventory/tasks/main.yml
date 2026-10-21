@@ -1,0 +1,168 @@
+---
+# Read-only: every task only reads state from the host. Commands run in check mode too.
+
+- name: Get Proxmox version
+  ansible.builtin.command:
+    argv: [pveversion]
+  register: host_inventory_pveversion
+  changed_when: false
+  check_mode: false
+  tags: [system]
+
+- name: Read kernel command line
+  ansible.builtin.slurp:
+    src: /proc/cmdline
+  register: host_inventory_cmdline
+  tags: [system]
+
+- name: Find IOMMU groups
+  ansible.builtin.find:
+    paths: /sys/kernel/iommu_groups
+    file_type: directory
+  register: host_inventory_iommu_groups
+  tags: [system]
+
+- name: List block devices
+  ansible.builtin.command:
+    argv:
+      - lsblk
+      - --json
+      - --bytes
+      - --output
+      - NAME,PATH,TYPE,SIZE,MODEL,SERIAL,WWN,ROTA,TRAN,FSTYPE,LABEL,MOUNTPOINT
+  register: host_inventory_lsblk
+  changed_when: false
+  check_mode: false
+  tags: [disks]
+
+- name: Set disk list
+  ansible.builtin.set_fact:
+    host_inventory_disks: >-
+      {{ (host_inventory_lsblk.stdout | from_json).blockdevices | selectattr('type', 'equalto', 'disk') | list }}
+  tags: [disks]
+
+- name: Read SMART health
+  ansible.builtin.command:
+    argv: [smartctl, --json, --info, --health, "{{ item.path }}"]
+  loop: "{{ host_inventory_disks }}"
+  loop_control:
+    label: "{{ item.path }}"
+  register: host_inventory_smart
+  changed_when: false
+  failed_when: false # smartctl uses non-zero exit bits for warnings
+  check_mode: false
+  tags: [disks]
+
+- name: List LVM physical volumes
+  ansible.builtin.command:
+    argv:
+      - pvs
+      - --reportformat
+      - json
+      - --units
+      - b
+      - --nosuffix
+      - -o
+      - "pv_name,vg_name,pv_size,pv_free"
+  register: host_inventory_pvs
+  changed_when: false
+  check_mode: false
+  tags: [storage]
+
+- name: List LVM volume groups
+  ansible.builtin.command:
+    argv:
+      - vgs
+      - --reportformat
+      - json
+      - --units
+      - b
+      - --nosuffix
+      - -o
+      - "vg_name,vg_size,vg_free,pv_count,lv_count"
+  register: host_inventory_vgs
+  changed_when: false
+  check_mode: false
+  tags: [storage]
+
+- name: List LVM logical volumes
+  ansible.builtin.command:
+    argv:
+      - lvs
+      - --reportformat
+      - json
+      - --units
+      - b
+      - --nosuffix
+      - -o
+      - "lv_name,vg_name,lv_size,lv_attr,pool_lv,data_percent"
+  register: host_inventory_lvs
+  changed_when: false
+  check_mode: false
+  tags: [storage]
+
+- name: List ZFS pools
+  ansible.builtin.command:
+    argv:
+      - zpool
+      - list
+      - -H
+      - -p
+      - -o
+      - "name,size,alloc,free,health"
+  register: host_inventory_zpools
+  changed_when: false
+  failed_when: false # no ZFS installed or no pools is a valid result
+  check_mode: false
+  tags: [storage]
+
+- name: Read Proxmox storage config
+  ansible.builtin.command:
+    argv: [pvesh, get, /storage, --output-format, json]
+  register: host_inventory_storage_config
+  changed_when: false
+  check_mode: false
+  tags: [storage]
+
+- name: Read Proxmox storage status
+  ansible.builtin.command:
+    argv: [pvesh, get, "/nodes/{{ ansible_facts.hostname }}/storage", --output-format, json]
+  register: host_inventory_storage_status
+  changed_when: false
+  check_mode: false
+  tags: [storage]
+
+- name: Read network config
+  ansible.builtin.slurp:
+    src: /etc/network/interfaces
+  register: host_inventory_network_config
+  tags: [network]
+
+- name: List guests
+  ansible.builtin.command:
+    argv: [pvesh, get, /cluster/resources, --type, vm, --output-format, json]
+  register: host_inventory_guests
+  changed_when: false
+  check_mode: false
+  tags: [guests]
+
+- name: Create report directory
+  ansible.builtin.file:
+    path: "{{ host_inventory_report_dir }}"
+    state: directory
+    mode: "0700"
+  delegate_to: localhost
+  become: false
+  run_once: true
+  check_mode: false
+  tags: [always]
+
+- name: Write inventory report
+  ansible.builtin.template:
+    src: report.md.j2
+    dest: "{{ host_inventory_report_dir }}/{{ inventory_hostname }}.md"
+    mode: "0600"
+  delegate_to: localhost
+  become: false
+  check_mode: false
+  tags: [always]

@@ -26,6 +26,9 @@ ping:
 # Bootstrap SSH hardening and the Ansible API token, then store the token in the vault
 bootstrap *args: (_playbook "bootstrap" args) store-token
 
+# Read-only report of host hardware, storage, network and guests, written to reports/<host>.md
+inventory *args: (_playbook "inventory" args)
+
 # Dry run a playbook with diff
 check playbook="site" *args: (_playbook playbook "--check" "--diff" args)
 

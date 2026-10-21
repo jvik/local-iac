@@ -1,0 +1,129 @@
+{{ ansible_managed | comment('xml') }}
+# {{ inventory_hostname }} inventory
+
+Generated {{ ansible_facts.date_time.iso8601 }} from `{{ ansible_host | default(inventory_hostname) }}`.
+{% macro size(bytes) %}{{ (bytes | default(0) | int) | human_readable }}{% endmacro %}
+{% if host_inventory_pveversion is defined %}
+
+## System
+
+| | |
+| --- | --- |
+| Proxmox | {{ host_inventory_pveversion.stdout | trim }} |
+| OS | {{ ansible_facts.distribution }} {{ ansible_facts.distribution_version }} |
+| Kernel | {{ ansible_facts.kernel }} |
+| CPU | {{ ansible_facts.processor[2] | default('unknown') }} |
+| Sockets / cores / threads | {{ ansible_facts.processor_count }} / {{ ansible_facts.processor_cores * ansible_facts.processor_count }} / {{ ansible_facts.processor_vcpus }} |
+| Memory | {{ ansible_facts.memtotal_mb }} MiB total, {{ ansible_facts.memfree_mb }} MiB free |
+| Swap | {{ ansible_facts.swaptotal_mb }} MiB |
+| Virtualization | {{ ansible_facts.virtualization_type }} ({{ ansible_facts.virtualization_role }}) |
+| IOMMU groups | {{ host_inventory_iommu_groups.matched }}{{ ' (IOMMU off: no PCI passthrough)' if host_inventory_iommu_groups.matched == 0 else '' }} |
+| Kernel cmdline | `{{ host_inventory_cmdline.content | b64decode | trim }}` |
+{% endif %}
+{% if host_inventory_disks is defined %}
+
+## Disks
+
+| Device | Model | Serial | WWN | Size | Type | Bus | SMART |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+{% for disk in host_inventory_disks %}
+{%   set smart_result = host_inventory_smart.results | selectattr('item.path', 'equalto', disk.path) | first %}
+{%   set smart = (smart_result.stdout | default('{}', true) | from_json) if smart_result.stdout | default('') | trim | length else {} %}
+| {{ disk.path }} | {{ disk.model | default('', true) | trim }} | {{ disk.serial | default('', true) }} | {{ disk.wwn | default('', true) }} | {{ size(disk.size) }} | {{ 'HDD' if disk.rota | bool else 'SSD' }} | {{ disk.tran | default('', true) }} | {{ ('passed' if smart.smart_status.passed else 'FAILED') if smart.smart_status is defined else 'n/a' }} |
+{% endfor %}
+
+### Partitions
+
+```
+{% macro tree(devices, depth) %}
+{% for dev in devices %}
+{{ '  ' * depth }}{{ dev.name }}  {{ dev.type }}  {{ size(dev.size) }}{{ '  ' ~ dev.fstype if dev.fstype else '' }}{{ '  ' ~ dev.label if dev.label else '' }}{{ '  -> ' ~ dev.mountpoint if dev.mountpoint else '' }}
+{{ tree(dev.children, depth + 1) if dev.children is defined else '' -}}
+{% endfor %}
+{% endmacro %}
+{{ tree(host_inventory_disks, 0) -}}
+```
+{% endif %}
+{% if host_inventory_vgs is defined %}
+
+## LVM
+
+| Physical volume | VG | Size | Free |
+| --- | --- | --- | --- |
+{% for pv in (host_inventory_pvs.stdout | from_json).report[0].pv %}
+| {{ pv.pv_name }} | {{ pv.vg_name }} | {{ size(pv.pv_size) }} | {{ size(pv.pv_free) }} |
+{% endfor %}
+
+| Volume group | Size | Free | PVs | LVs |
+| --- | --- | --- | --- | --- |
+{% for vg in (host_inventory_vgs.stdout | from_json).report[0].vg %}
+| {{ vg.vg_name }} | {{ size(vg.vg_size) }} | {{ size(vg.vg_free) }} | {{ vg.pv_count }} | {{ vg.lv_count }} |
+{% endfor %}
+
+| Logical volume | VG | Size | Attr | Pool | Data % |
+| --- | --- | --- | --- | --- | --- |
+{% for lv in (host_inventory_lvs.stdout | from_json).report[0].lv %}
+| {{ lv.lv_name }} | {{ lv.vg_name }} | {{ size(lv.lv_size) }} | `{{ lv.lv_attr }}` | {{ lv.pool_lv }} | {{ lv.data_percent }} |
+{% endfor %}
+
+## ZFS
+
+{% set zpools = host_inventory_zpools.stdout_lines | default([]) | select('search', '\t') | list %}
+{% if host_inventory_zpools.rc != 0 %}
+ZFS not available (`zpool` exited {{ host_inventory_zpools.rc }}).
+{% elif zpools | length == 0 %}
+No ZFS pools.
+{% else %}
+| Pool | Size | Allocated | Free | Health |
+| --- | --- | --- | --- | --- |
+{%   for line in zpools %}
+{%     set f = line.split('\t') %}
+| {{ f[0] }} | {{ size(f[1]) }} | {{ size(f[2]) }} | {{ size(f[3]) }} | {{ f[4] }} |
+{%   endfor %}
+{% endif %}
+
+## Proxmox storage
+
+{% set storage_config = host_inventory_storage_config.stdout | from_json %}
+| Storage | Type | Backing | Content | Total | Used | Available | Active | Shared |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+{% for s in host_inventory_storage_status.stdout | from_json | sort(attribute='storage') %}
+{%   set cfg = storage_config | selectattr('storage', 'equalto', s.storage) | first | default({}) %}
+{%   set backing = cfg.path | default(cfg.pool | default(cfg.vgname | default('') ~ ('/' ~ cfg.thinpool if cfg.thinpool is defined else ''))) %}
+| {{ s.storage }} | {{ s.type }} | {{ backing }} | {{ s.content }} | {{ size(s.total) }} | {{ size(s.used) }} | {{ size(s.avail) }} | {{ 'yes' if s.active | default(0) | int else 'no' }} | {{ 'yes' if s.shared | default(0) | int else 'no' }} |
+{% endfor %}
+{% endif %}
+{% if host_inventory_network_config is defined %}
+
+## Network
+
+Default gateway: {{ ansible_facts.default_ipv4.gateway | default('none') }} via {{ ansible_facts.default_ipv4.interface | default('none') }}
+
+| Interface | Type | MAC | IPv4 | Up | Members |
+| --- | --- | --- | --- | --- | --- |
+{% for name in ansible_facts.interfaces | reject('equalto', 'lo') | sort %}
+{%   set nic = ansible_facts[name | replace('-', '_') | replace('.', '_')] | default({}) %}
+| {{ name }} | {{ nic.type | default('') }} | {{ nic.macaddress | default('') }} | {{ (nic.ipv4.address ~ '/' ~ nic.ipv4.prefix) if nic.ipv4 is defined else '' }} | {{ 'yes' if nic.active | default(false) else 'no' }} | {{ nic.interfaces | default([]) | join(', ') }} |
+{% endfor %}
+
+`/etc/network/interfaces`:
+
+```
+{{ host_inventory_network_config.content | b64decode | trim }}
+```
+{% endif %}
+{% if host_inventory_guests is defined %}
+
+## Guests
+
+{% set guests = host_inventory_guests.stdout | from_json | sort(attribute='vmid') %}
+{% if guests | length == 0 %}
+No VMs or containers.
+{% else %}
+| VMID | Type | Name | Status | CPUs | Memory | Disk |
+| --- | --- | --- | --- | --- | --- | --- |
+{%   for g in guests %}
+| {{ g.vmid }} | {{ g.type }} | {{ g.name | default('') }} | {{ g.status }} | {{ g.maxcpu | default('') }} | {{ size(g.maxmem) }} | {{ size(g.maxdisk) }} |
+{%   endfor %}
+{% endif %}
+{% endif %}

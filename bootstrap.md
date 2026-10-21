@@ -83,6 +83,17 @@ git add inventory/group_vars/all/vault.yml
 git commit -m "Add Proxmox API token to vault"
 ```
 
+## 6. Inventory the host
+
+```sh
+just inventory
+```
+
+Read-only: it changes nothing on the host. It writes `reports/pve01.md` (git-ignored) with the
+Proxmox version, CPU, memory, IOMMU, disks with SMART health, LVM/ZFS, Proxmox storage, network
+and existing guests. Check it before planning storage or guests, and re-run it after hardware
+changes.
+
 ## Recovery
 
 - **Token secret lost or needs rotating:** delete the token in the Proxmox UI and run

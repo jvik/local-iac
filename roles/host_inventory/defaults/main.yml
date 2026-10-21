@@ -1,0 +1,3 @@
+---
+# Where the report is written on the control machine (git-ignored).
+host_inventory_report_dir: "{{ playbook_dir }}/../reports"
