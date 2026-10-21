@@ -1,0 +1,15 @@
+---
+# Linux bridges written to /etc/network/interfaces. The whole file is managed: anything not listed
+# here (except /etc/network/interfaces.d/*) is removed. Example:
+#
+# proxmox_network_bridges:
+#   - name: vmbr0
+#     ports: [nic0]                # Physical ports; each gets an "inet manual" stanza
+#     address: 10.0.10.233/24      # Optional; omit for a bridge without a host IP
+#     gateway: 10.0.10.1           # Optional
+#     vlan_aware: true             # Guests set the VLAN tag on their NIC
+#     vids: [50]                   # Tagged VLANs allowed; untagged traffic stays on the bridge
+proxmox_network_bridges: []
+
+# If the host is unreachable after a reload, the previous config is restored after this delay.
+proxmox_network_rollback_seconds: 120

@@ -1,0 +1,28 @@
+{{ ansible_managed | comment }}
+
+auto lo
+iface lo inet loopback
+
+{% for bridge in proxmox_network_bridges %}
+{% for port in bridge.ports | default([]) %}
+iface {{ port }} inet manual
+
+{% endfor %}
+auto {{ bridge.name }}
+iface {{ bridge.name }} inet {{ 'static' if bridge.address is defined else 'manual' }}
+{% if bridge.address is defined %}
+	address {{ bridge.address }}
+{% endif %}
+{% if bridge.gateway is defined %}
+	gateway {{ bridge.gateway }}
+{% endif %}
+	bridge-ports {{ bridge.ports | default([]) | join(' ') or 'none' }}
+	bridge-stp off
+	bridge-fd 0
+{% if bridge.vlan_aware | default(false) %}
+	bridge-vlan-aware yes
+	bridge-vids {{ bridge.vids | default(['2-4094']) | join(' ') }}
+{% endif %}
+
+{% endfor %}
+source /etc/network/interfaces.d/*

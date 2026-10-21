@@ -1,0 +1,26 @@
+---
+# LIVE NETWORK: a wrong config here cuts off the host. Changes are reloaded with a timed rollback
+# (see handlers), but always run with --check --diff first.
+
+- name: Refuse a network config without the management address
+  ansible.builtin.assert:
+    that:
+      - proxmox_network_bridges | length > 0
+      - ansible_host in (proxmox_network_bridges | selectattr('address', 'defined')
+        | map(attribute='address') | map('regex_replace', '/.*$', '') | list)
+    fail_msg: >-
+      No bridge in proxmox_network_bridges carries {{ ansible_host }}; applying it would lock you out.
+  tags: [network]
+
+- name: Write /etc/network/interfaces
+  ansible.builtin.template:
+    src: interfaces.j2
+    dest: /etc/network/interfaces
+    owner: root
+    group: root
+    mode: "0644"
+    backup: true
+    validate: ifquery --all --interfaces %s
+  register: proxmox_network_interfaces
+  notify: Proxmox network config changed
+  tags: [network]

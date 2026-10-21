@@ -1,0 +1,41 @@
+---
+# Runs in order: arm rollback, reload, verify reachability, disarm rollback. If the host is not
+# reachable, the play fails and the timer restores the backup and reloads.
+- name: Schedule network rollback
+  ansible.builtin.command:
+    argv:
+      - systemd-run
+      - --unit=local-iac-network-rollback
+      - --on-active={{ proxmox_network_rollback_seconds }}
+      - /bin/sh
+      - -c
+      - cp -p {{ proxmox_network_interfaces.backup_file | quote }} /etc/network/interfaces && ifreload -a
+  changed_when: true
+  when: proxmox_network_interfaces.backup_file is defined
+  listen: Proxmox network config changed
+
+- name: Reload network
+  ansible.builtin.command:
+    argv: [ifreload, -a]
+  changed_when: true
+  listen: Proxmox network config changed
+
+- name: Wait for SSH on the management address
+  ansible.builtin.wait_for:
+    host: "{{ ansible_host }}"
+    port: 22
+    timeout: "{{ (proxmox_network_rollback_seconds / 2) | int }}"
+  delegate_to: localhost
+  become: false
+  listen: Proxmox network config changed
+
+- name: Check Ansible connectivity
+  ansible.builtin.ping:
+  listen: Proxmox network config changed
+
+- name: Cancel network rollback
+  ansible.builtin.command:
+    argv: [systemctl, stop, local-iac-network-rollback.timer]
+  changed_when: true
+  when: proxmox_network_interfaces.backup_file is defined
+  listen: Proxmox network config changed

@@ -1,5 +1,6 @@
 ---
 # =================================================================================================
+# LIVE NETWORK: proxmox_network rewrites /etc/network/interfaces (with a timed rollback).
 # HARDWARE-SPECIFIC: wipes physical disks and creates ZFS pools on them, as defined in
 # inventory/host_vars/<host>/. Written for pve01 (HP Z1 G8). Check the host vars match the actual
 # hardware and run with --check --diff before applying to anything else.
@@ -8,5 +9,7 @@
   hosts: proxmox
   gather_facts: true
   roles:
+    - role: proxmox_network
+      tags: [network]
     - role: proxmox_zfs
       tags: [zfs]
