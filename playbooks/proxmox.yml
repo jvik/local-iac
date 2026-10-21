@@ -11,5 +11,7 @@
   roles:
     - role: proxmox_network
       tags: [network]
+    - role: proxmox_sdn
+      tags: [sdn]
     - role: proxmox_zfs
       tags: [zfs]

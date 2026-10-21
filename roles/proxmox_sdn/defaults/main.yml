@@ -1,0 +1,17 @@
+---
+# SDN zones and VNets, created through pvesh and applied cluster-wide. Additive: zones and VNets
+# not listed here are left alone. IDs are 2-8 lowercase letters or digits, starting with a letter.
+# Example:
+#
+# proxmox_sdn_zones:
+#   - id: lan
+#     type: vlan                   # Only VLAN zones are supported
+#     bridge: vmbr0                # Must be a VLAN-aware bridge from proxmox_network_bridges
+#
+# proxmox_sdn_vnets:
+#   - id: servers
+#     zone: lan
+#     tag: 50                      # Must be in the bridge's vids
+#     alias: Servers 10.0.50.0/24  # Optional; shown in the GUI
+proxmox_sdn_zones: []
+proxmox_sdn_vnets: []

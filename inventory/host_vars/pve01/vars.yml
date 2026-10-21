@@ -31,11 +31,23 @@ proxmox_zfs_retired_lvm:
 
 # Single NIC on a switch trunk: VLAN 10 (management, 10.0.10.0/24) untagged, VLAN 50 (servers,
 # 10.0.50.0/24, gw 10.0.50.1, DHCP with reservations) tagged. The host has no IP on VLAN 50; guests
-# set tag=50 on their NIC.
+# attach to the "servers" VNet. The tagged VLANs on vmbr0 are the VNet tags.
 proxmox_network_bridges:
   - name: vmbr0
     ports: [nic0]
     address: 10.0.10.233/24
     gateway: 10.0.10.1
     vlan_aware: true
-    vids: [50]
+    vids: "{{ proxmox_sdn_vnets | map(attribute='tag') | list }}"
+
+# No subnets: the router does DHCP for 10.0.50.0/24.
+proxmox_sdn_zones:
+  - id: lan
+    type: vlan
+    bridge: vmbr0
+
+proxmox_sdn_vnets:
+  - id: servers
+    zone: lan
+    tag: 50
+    alias: Servers 10.0.50.0/24

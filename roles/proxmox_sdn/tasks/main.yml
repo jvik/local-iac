@@ -1,0 +1,173 @@
+---
+# Edits go to the pending SDN config; "Apply SDN config" writes /etc/network/interfaces.d/sdn and
+# runs ifreload on every node. Existing bridges are not changed, but guests on a VNet whose tag
+# changes lose connectivity until the switch side matches.
+
+- name: Refuse invalid SDN zones
+  vars:
+    proxmox_sdn_bridge: >-
+      {{ proxmox_network_bridges | selectattr('name', 'equalto', item.bridge) | first | default({}) }}
+  ansible.builtin.assert:
+    that:
+      - item.id is match('^[a-z][a-z0-9]{1,7}$')
+      - item.type == 'vlan'
+      - proxmox_sdn_bridge.vlan_aware | default(false)
+    fail_msg: >-
+      Zone {{ item.id }} needs an ID of 2-8 lowercase letters or digits, type vlan, and a VLAN-aware
+      bridge from proxmox_network_bridges (got {{ item.bridge }}).
+    quiet: true
+  loop: "{{ proxmox_sdn_zones }}"
+  loop_control:
+    label: "{{ item.id }}"
+  tags: [sdn]
+
+- name: Refuse invalid SDN VNets
+  vars:
+    proxmox_sdn_zone: "{{ proxmox_sdn_zones | selectattr('id', 'equalto', item.zone) | first | default({}) }}"
+    proxmox_sdn_bridge: >-
+      {{ proxmox_network_bridges | selectattr('name', 'equalto', proxmox_sdn_zone.bridge | default('')) | first
+         | default({}) }}
+  ansible.builtin.assert:
+    that:
+      - item.id is match('^[a-z][a-z0-9]{1,7}$')
+      - proxmox_sdn_zone | length > 0
+      - item.tag | int in proxmox_sdn_bridge.vids | default([])
+    fail_msg: >-
+      VNet {{ item.id }} needs an ID of 2-8 lowercase letters or digits, a zone from proxmox_sdn_zones
+      (got {{ item.zone }}), and a tag in that zone bridge's vids (got {{ item.tag }}).
+    quiet: true
+  loop: "{{ proxmox_sdn_vnets }}"
+  loop_control:
+    label: "{{ item.id }}"
+  tags: [sdn]
+
+- name: Read SDN zones
+  ansible.builtin.command:
+    argv: [pvesh, get, /cluster/sdn/zones, --output-format, json]
+  register: proxmox_sdn_zones_config
+  changed_when: false
+  check_mode: false
+  tags: [sdn]
+
+- name: Read SDN VNets
+  ansible.builtin.command:
+    argv: [pvesh, get, /cluster/sdn/vnets, --output-format, json]
+  register: proxmox_sdn_vnets_config
+  changed_when: false
+  check_mode: false
+  tags: [sdn]
+
+- name: Create SDN zones
+  ansible.builtin.command:
+    argv:
+      - pvesh
+      - create
+      - /cluster/sdn/zones
+      - --zone
+      - "{{ item.id }}"
+      - --type
+      - "{{ item.type }}"
+      - --bridge
+      - "{{ item.bridge }}"
+  loop: "{{ proxmox_sdn_zones }}"
+  loop_control:
+    label: "{{ item.id }}"
+  when: item.id not in (proxmox_sdn_zones_config.stdout | from_json | map(attribute='zone'))
+  changed_when: true
+  tags: [sdn]
+
+# The zone type cannot be changed in place; the assert above only allows vlan.
+- name: Update SDN zones
+  vars:
+    proxmox_sdn_current: >-
+      {{ proxmox_sdn_zones_config.stdout | from_json | selectattr('zone', 'equalto', item.id) | first | default({}) }}
+  ansible.builtin.command:
+    argv: [pvesh, set, "/cluster/sdn/zones/{{ item.id }}", --bridge, "{{ item.bridge }}"]
+  loop: "{{ proxmox_sdn_zones }}"
+  loop_control:
+    label: "{{ item.id }}"
+  when:
+    - proxmox_sdn_current | length > 0
+    - proxmox_sdn_current.bridge | default('') != item.bridge
+  changed_when: true
+  tags: [sdn]
+
+- name: Create SDN VNets
+  ansible.builtin.command:
+    argv: >-
+      {{ ['pvesh', 'create', '/cluster/sdn/vnets', '--vnet', item.id, '--zone', item.zone, '--tag', item.tag | string]
+         + (['--alias', item.alias] if item.alias is defined else []) }}
+  loop: "{{ proxmox_sdn_vnets }}"
+  loop_control:
+    label: "{{ item.id }}"
+  when: item.id not in (proxmox_sdn_vnets_config.stdout | from_json | map(attribute='vnet'))
+  changed_when: true
+  tags: [sdn]
+
+- name: Update SDN VNets
+  vars:
+    proxmox_sdn_current: >-
+      {{ proxmox_sdn_vnets_config.stdout | from_json | selectattr('vnet', 'equalto', item.id) | first | default({}) }}
+  ansible.builtin.command:
+    argv: >-
+      {{ ['pvesh', 'set', '/cluster/sdn/vnets/' ~ item.id, '--zone', item.zone, '--tag', item.tag | string]
+         + (['--alias', item.alias] if item.alias is defined else []) }}
+  loop: "{{ proxmox_sdn_vnets }}"
+  loop_control:
+    label: "{{ item.id }}"
+  when:
+    - proxmox_sdn_current | length > 0
+    - >-
+      proxmox_sdn_current.zone | default('') != item.zone
+      or (proxmox_sdn_current.tag | default(0) | int) != (item.tag | int)
+      or proxmox_sdn_current.alias | default('') != item.alias | default('')
+  changed_when: true
+  tags: [sdn]
+
+# Compared against the running (applied) config rather than the edits above, so a run that failed
+# before applying is picked up on the next run.
+- name: Read running SDN zones
+  ansible.builtin.command:
+    argv: [pvesh, get, /cluster/sdn/zones, --running, "1", --output-format, json]
+  register: proxmox_sdn_zones_running
+  changed_when: false
+  check_mode: false
+  tags: [sdn]
+
+- name: Read running SDN VNets
+  ansible.builtin.command:
+    argv: [pvesh, get, /cluster/sdn/vnets, --running, "1", --output-format, json]
+  register: proxmox_sdn_vnets_running
+  changed_when: false
+  check_mode: false
+  tags: [sdn]
+
+- name: Find SDN zones and VNets that are not applied
+  vars:
+    proxmox_sdn_running_zones: "{{ proxmox_sdn_zones_running.stdout | from_json }}"
+    proxmox_sdn_running_vnets: "{{ proxmox_sdn_vnets_running.stdout | from_json }}"
+  ansible.builtin.set_fact:
+    proxmox_sdn_unapplied: >-
+      {%- set ns = namespace(ids=[]) -%}
+      {%- for zone in proxmox_sdn_zones -%}
+        {%- set running = proxmox_sdn_running_zones | selectattr('zone', 'equalto', zone.id) | first | default({}) -%}
+        {%- if running.type | default('') != zone.type or running.bridge | default('') != zone.bridge -%}
+          {%- set ns.ids = ns.ids + ['zone ' ~ zone.id] -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {%- for vnet in proxmox_sdn_vnets -%}
+        {%- set running = proxmox_sdn_running_vnets | selectattr('vnet', 'equalto', vnet.id) | first | default({}) -%}
+        {%- if running.zone | default('') != vnet.zone or (running.tag | default(0) | int) != (vnet.tag | int)
+              or running.alias | default('') != vnet.alias | default('') -%}
+          {%- set ns.ids = ns.ids + ['vnet ' ~ vnet.id] -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {{ ns.ids }}
+  tags: [sdn]
+
+- name: Apply SDN config
+  ansible.builtin.command:
+    argv: [pvesh, set, /cluster/sdn]
+  when: proxmox_sdn_unapplied | length > 0
+  changed_when: true
+  tags: [sdn]

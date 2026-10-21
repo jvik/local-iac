@@ -84,7 +84,8 @@ from `proxmox_network_bridges` in `inventory/host_vars/<host>/vars.yml`.
 
 On `pve01`, `nic0` is on a switch trunk: VLAN 10 (management, 10.0.10.0/24) untagged and VLAN 50
 (servers, 10.0.50.0/24) tagged. `vmbr0` is VLAN-aware and allows VID 50. The host has no IP on
-VLAN 50; guests on the server network set `tag=50` on their NIC and get an address by DHCP.
+VLAN 50; guests on the server network attach to the `servers` VNet (see below) and get an address
+by DHCP.
 
 Before reloading, the role arms a `systemd-run` timer that restores the previous file and reloads
 the network. The timer is cancelled only if SSH is still reachable on the management address
@@ -93,6 +94,19 @@ afterwards. It refuses to write a config that does not contain `ansible_host`.
 ```sh
 just check proxmox --tags network
 just apply proxmox --tags network
+```
+
+### SDN
+
+The `proxmox_sdn` role creates SDN zones and VNets from `proxmox_sdn_zones` and
+`proxmox_sdn_vnets`, then applies the SDN config. It only adds and updates; zones and VNets not
+listed are left alone. On `pve01`, VLAN zone `lan` sits on `vmbr0` and VNet `servers` carries tag
+50. Guests use `bridge=servers` with no tag. The VNet tags are the only place VLAN IDs are set:
+`vmbr0`'s `vids` is derived from them.
+
+```sh
+just check proxmox --tags sdn
+just apply proxmox --tags sdn
 ```
 
 ## Storage
