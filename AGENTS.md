@@ -31,6 +31,10 @@ workstation to a state Ansible can manage. Keep it accurate:
   with `{{ ansible_managed | comment }}`.
 - **Tags**: tag tasks by concern so plays can be run partially.
 - **Booleans**: use `true`/`false`, not `yes`/`no`.
+- **Single source of truth**: never repeat a value as a literal. Host names and addresses live
+  only in `inventory/hosts.yml`; derive them elsewhere from the inventory
+  (`groups['proxmox'] | first`, `hostvars[host].ansible_host`, `inventory_hostname`). Other shared
+  values are defined once in `group_vars` and referenced.
 
 ## Secrets
 

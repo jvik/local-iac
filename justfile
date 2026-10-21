@@ -52,11 +52,15 @@ vault-init:
 vault-edit:
     ansible-vault edit {{ vault_file }}
 
-# Move a newly created API token secret into the vault
-store-token host="pve01":
+# Move a newly created API token secret into the vault (host defaults to the first in group proxmox)
+store-token host="":
     #!/usr/bin/env bash
     set -euo pipefail
-    token_file="{{ secrets_dir }}/{{ host }}-api-token"
+    host="{{ host }}"
+    if [[ -z "$host" ]]; then
+      host="$(ansible proxmox --list-hosts | awk 'NR == 2 { print $1 }')"
+    fi
+    token_file="{{ secrets_dir }}/$host-api-token"
     vault="{{ vault_file }}"
     if [[ ! -f "$token_file" ]]; then
       echo "No new token secret at $token_file, vault unchanged."
