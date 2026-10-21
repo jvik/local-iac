@@ -16,13 +16,29 @@
 
 - name: Create Proxmox role
   ansible.builtin.command:
-    argv: [pveum, role, add, "{{ proxmox_api_role }}", --privs, "{{ proxmox_api_privileges | join(',') }}"]
+    argv:
+      [
+        pveum,
+        role,
+        add,
+        "{{ proxmox_api_role }}",
+        --privs,
+        "{{ proxmox_api_privileges | join(',') }}",
+      ]
   changed_when: true
   when: proxmox_api_existing_role is none
 
 - name: Update Proxmox role privileges
   ansible.builtin.command:
-    argv: [pveum, role, modify, "{{ proxmox_api_role }}", --privs, "{{ proxmox_api_privileges | join(',') }}"]
+    argv:
+      [
+        pveum,
+        role,
+        modify,
+        "{{ proxmox_api_role }}",
+        --privs,
+        "{{ proxmox_api_privileges | join(',') }}",
+      ]
   changed_when: true
   when:
     - proxmox_api_existing_role is not none
@@ -37,7 +53,15 @@
 
 - name: Create Proxmox user
   ansible.builtin.command:
-    argv: [pveum, user, add, "{{ proxmox_api_user }}", --comment, Ansible automation]
+    argv:
+      [
+        pveum,
+        user,
+        add,
+        "{{ proxmox_api_user }}",
+        --comment,
+        Ansible automation,
+      ]
   changed_when: true
   when: proxmox_api_user not in (proxmox_api_users.stdout | from_json | map(attribute='userid'))
 
@@ -50,7 +74,17 @@
 
 - name: Grant role to user on /
   ansible.builtin.command:
-    argv: [pveum, acl, modify, /, --users, "{{ proxmox_api_user }}", --roles, "{{ proxmox_api_role }}"]
+    argv:
+      [
+        pveum,
+        acl,
+        modify,
+        /,
+        --users,
+        "{{ proxmox_api_user }}",
+        --roles,
+        "{{ proxmox_api_role }}",
+      ]
   changed_when: true
   when: >-
     proxmox_api_acls.stdout | from_json
@@ -62,7 +96,16 @@
 
 - name: List API tokens
   ansible.builtin.command:
-    argv: [pveum, user, token, list, "{{ proxmox_api_user }}", --output-format, json]
+    argv:
+      [
+        pveum,
+        user,
+        token,
+        list,
+        "{{ proxmox_api_user }}",
+        --output-format,
+        json,
+      ]
   register: proxmox_api_tokens
   changed_when: false
   failed_when: false
