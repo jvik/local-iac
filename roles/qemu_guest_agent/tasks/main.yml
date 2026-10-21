@@ -1,0 +1,40 @@
+---
+# Cloud-init also installs the agent on the first boot, so Proxmox can show the VM's address before
+# Ansible can reach it. This role keeps it installed and running afterwards.
+
+# The address is only known once the router has a DHCP reservation for the VM.
+- name: Skip VMs without an address
+  when: ansible_host is not defined
+  block:
+    - name: Report missing address
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }} has no ansible_host in inventory/hosts.yml; skipping. Find its address
+          under the VM's Summary in Proxmox, reserve it in DHCP and add it to the inventory.
+
+    - name: End play for this VM
+      ansible.builtin.meta: end_host
+
+- name: Wait for SSH
+  ansible.builtin.wait_for_connection:
+    timeout: 600
+
+# Avoids competing with cloud-init's own package installs for the apt lock.
+- name: Wait for cloud-init to finish
+  ansible.builtin.command:
+    argv: [cloud-init, status, --wait]
+  changed_when: false
+  check_mode: false
+
+- name: Install QEMU guest agent
+  ansible.builtin.apt:
+    name: qemu-guest-agent
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Enable and start QEMU guest agent
+  ansible.builtin.systemd_service:
+    name: qemu-guest-agent
+    enabled: true
+    state: started

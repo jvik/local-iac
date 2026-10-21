@@ -1,0 +1,13 @@
+---
+# proxmox_cloud_images and proxmox_cloud_images_storage are shared with proxmox_vm and are defined
+# in inventory/group_vars/all/vars.yml. Example:
+#
+# proxmox_cloud_images_storage: local   # A directory storage
+# proxmox_cloud_images:
+#   ubuntu-26.04:                        # Key referenced by proxmox_vm_image
+#     url: https://cloud-images.ubuntu.com/releases/resolute/release-20261016/ubuntu-26.04-server-cloudimg-amd64.img
+#     checksum: sha256:...
+#     file: ubuntu-26.04-server-cloudimg-amd64-20261016.qcow2
+
+# Content types enabled on the storage, in addition to what it already has.
+proxmox_cloud_images_content: [import, snippets]

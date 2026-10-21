@@ -1,0 +1,118 @@
+---
+# Runs per VM host without connecting to it: API calls run on the control node, the vendor data
+# snippet is written on the Proxmox node over SSH. Cloud-init runs only on the first boot, so
+# changes to the vendor data or cloud-init settings only affect a recreated VM.
+
+- name: Refuse incomplete VM definitions
+  ansible.builtin.assert:
+    that:
+      - proxmox_vm_id | string is match('^[1-9][0-9]{2,8}$')
+      - proxmox_vm_image in proxmox_cloud_images
+      - proxmox_vm_ssh_public_keys | length > 0
+      - proxmox_vm_disk_size is match('^[0-9]+G$')
+    fail_msg: >-
+      {{ inventory_hostname }} needs proxmox_vm_id (100 or higher), proxmox_vm_image from
+      proxmox_cloud_images (got {{ proxmox_vm_image }}), at least one key in proxmox_vm_ssh_public_keys and
+      proxmox_vm_disk_size in whole GiB such as 32G (got {{ proxmox_vm_disk_size }}).
+    quiet: true
+  tags: [vms]
+
+- name: Look up existing VM by ID
+  community.proxmox.proxmox_vm_info:
+    node: "{{ proxmox_api_node }}"
+    vmid: "{{ proxmox_vm_id }}"
+  delegate_to: localhost
+  register: proxmox_vm_existing
+  tags: [vms]
+
+# Stops a typo in proxmox_vm_id from resizing or starting someone else's VM.
+- name: Refuse a VM ID that belongs to another VM
+  ansible.builtin.assert:
+    that: >-
+      proxmox_vm_existing.proxmox_vms | length == 0
+      or (proxmox_vm_existing.proxmox_vms | first).name == proxmox_vm_name
+    fail_msg: >-
+      VM ID {{ proxmox_vm_id }} already exists as {{ (proxmox_vm_existing.proxmox_vms | first).name | default('') }},
+      not {{ proxmox_vm_name }}.
+    quiet: true
+  tags: [vms]
+
+- name: Read snippets storage path
+  ansible.builtin.command:
+    argv: [pvesh, get, "/storage/{{ proxmox_cloud_images_storage }}", --output-format, json]
+  delegate_to: "{{ proxmox_api_node }}"
+  register: proxmox_vm_storage_config
+  changed_when: false
+  check_mode: false
+  tags: [vms]
+
+- name: Write cloud-init vendor data
+  ansible.builtin.copy:
+    content: |
+      #cloud-config
+      {{ proxmox_vm_vendor_data | to_nice_yaml(indent=2, width=1000) }}
+    dest: "{{ (proxmox_vm_storage_config.stdout | from_json).path }}/snippets/{{ proxmox_vm_name }}-vendor.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  delegate_to: "{{ proxmox_api_node }}"
+  tags: [vms]
+
+- name: Create VM
+  vars:
+    proxmox_vm_image_file: "{{ proxmox_cloud_images[proxmox_vm_image].file }}"
+    proxmox_vm_import_from: "{{ proxmox_cloud_images_storage }}:import/{{ proxmox_vm_image_file }}"
+  community.proxmox.proxmox_kvm:
+    node: "{{ proxmox_api_node }}"
+    vmid: "{{ proxmox_vm_id }}"
+    name: "{{ proxmox_vm_name }}"
+    description: Managed by Ansible (local-iac). Image {{ proxmox_vm_image_file }}.
+    ostype: l26
+    machine: q35
+    cpu: host
+    cores: "{{ proxmox_vm_cores }}"
+    memory: "{{ proxmox_vm_memory }}"
+    agent: enabled=1
+    scsihw: virtio-scsi-single
+    scsi:
+      scsi0: "{{ proxmox_vm_storage }}:0,import-from={{ proxmox_vm_import_from }},discard=on,iothread=1,ssd=1"
+    ide:
+      ide2: "{{ proxmox_vm_storage }}:cloudinit"
+    boot: order=scsi0
+    net:
+      net0: "virtio{{ '=' ~ proxmox_vm_macaddr if proxmox_vm_macaddr else '' }},bridge={{ proxmox_vm_bridge }}"
+    # Ubuntu cloud images log to the serial console.
+    serial:
+      serial0: socket
+    vga: serial0
+    ciuser: "{{ proxmox_vm_ciuser }}"
+    sshkeys: "{{ proxmox_vm_ssh_public_keys | join('\n') }}"
+    ipconfig:
+      ipconfig0: ip=dhcp
+    ciupgrade: true
+    cicustom: vendor={{ proxmox_cloud_images_storage }}:snippets/{{ proxmox_vm_name }}-vendor.yml
+    onboot: "{{ proxmox_vm_onboot }}"
+    tags: "{{ proxmox_vm_tags }}"
+    timeout: "{{ proxmox_vm_timeout }}"
+    state: present
+  delegate_to: localhost
+  tags: [vms]
+
+- name: Grow boot disk
+  community.proxmox.proxmox_disk:
+    vmid: "{{ proxmox_vm_id }}"
+    disk: scsi0
+    size: "{{ proxmox_vm_disk_size }}"
+    state: resized
+    timeout: "{{ proxmox_vm_timeout }}"
+  delegate_to: localhost
+  tags: [vms]
+
+- name: Start VM
+  community.proxmox.proxmox_kvm:
+    node: "{{ proxmox_api_node }}"
+    vmid: "{{ proxmox_vm_id }}"
+    timeout: "{{ proxmox_vm_timeout }}"
+    state: started
+  delegate_to: localhost
+  tags: [vms]

@@ -19,9 +19,9 @@ lint:
     ansible-lint
     ansible-playbook playbooks/site.yml --syntax-check
 
-# Check SSH connectivity to all hosts
+# Check SSH connectivity to the Proxmox hosts
 ping:
-    ansible all -m ansible.builtin.ping
+    ansible proxmox -m ansible.builtin.ping
 
 # Bootstrap SSH hardening and the Ansible API token, then store the token in the vault
 bootstrap *args: (_playbook "bootstrap" args) store-token

@@ -1,0 +1,30 @@
+---
+# One VM per inventory host in group proxmox_vms, imported from a cloud image and configured with
+# cloud-init on the first Proxmox node. Create-only: hardware settings of an existing VM are not
+# changed, except that the boot disk is grown to proxmox_vm_disk_size. Example host vars:
+#
+# proxmox_vm_id: 110
+# proxmox_vm_image: ubuntu-26.04          # Key from proxmox_cloud_images
+# proxmox_vm_macaddr: BC:24:11:6B:3E:A1   # Optional; pin it to keep a DHCP reservation on rebuild
+# proxmox_vm_vendor_data:                 # cloud-config, merged with the user data Proxmox generates
+#   packages: [qemu-guest-agent]
+#   runcmd:
+#     - [systemctl, enable, --now, qemu-guest-agent]
+proxmox_vm_id:
+proxmox_vm_name: "{{ inventory_hostname }}"
+proxmox_vm_image:
+proxmox_vm_cores: 2
+proxmox_vm_memory: 2048
+# Only grows the disk; Proxmox cannot shrink it.
+proxmox_vm_disk_size: 32G
+# Defaults to the first ZFS pool (its storage ID is the pool name) and the first SDN VNet on the node.
+proxmox_vm_storage: "{{ (hostvars[proxmox_api_node].proxmox_zfs_pools | first).name }}"
+proxmox_vm_bridge: "{{ (hostvars[proxmox_api_node].proxmox_sdn_vnets | first).id }}"
+proxmox_vm_macaddr: ""
+proxmox_vm_onboot: true
+proxmox_vm_tags: []
+proxmox_vm_ciuser: ubuntu
+proxmox_vm_ssh_public_keys: []
+proxmox_vm_vendor_data: {}
+# Import of the cloud image and first start can be slow on busy storage.
+proxmox_vm_timeout: 600

@@ -1,0 +1,9 @@
+---
+# Public keys for the cloud-init user (proxmox_vm_ciuser) on every VM, one per entry.
+proxmox_vm_ssh_public_keys:
+  - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDcyHtZw9BXoeuo5BSgxVth8M0xSlQHxhI9ODu42g4lW min-nøkkel
+proxmox_vm_ciuser: ubuntu
+
+ansible_user: "{{ proxmox_vm_ciuser }}"
+# A rebuilt VM gets a new host key; accept it on first contact only.
+ansible_ssh_common_args: -o StrictHostKeyChecking=accept-new

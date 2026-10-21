@@ -61,7 +61,7 @@ step-by-step procedure, verification and recovery.
 │   ├── inventory.yml        # Read-only hardware/storage/network/guest report
 │   ├── proxmox.yml          # Host configuration (hardware-specific)
 │   ├── update.yml           # Automatic updates and an on-demand apt dist-upgrade
-│   └── guests.yml           # VM / LXC provisioning
+│   └── guests.yml           # Cloud images and VM provisioning
 ├── reports/                 # Generated host reports (git-ignored)
 └── roles/
     └── <role>/              # One role per concern
@@ -151,6 +151,38 @@ just apply update --tags auto                          # configure automatic upd
 just apply update --tags upgrade                       # upgrade now, no reboot
 just apply update --tags upgrade -e proxmox_updates_reboot=true
 ```
+
+## Guests
+
+`playbooks/guests.yml` creates VMs from cloud images, configured with cloud-init:
+
+- `proxmox_cloud_images` (SSH, on the Proxmox host) enables `import` and `snippets` content on
+  `local` and downloads the pinned images in `proxmox_cloud_images` (`group_vars/all`) into its
+  import directory.
+- `proxmox_vm` (API token, from the control node) creates one VM per host in the `proxmox_vms`
+  inventory group: imports the image as the boot disk, grows it, adds a cloud-init drive and
+  starts the VM. Proxmox generates the user data (user, SSH keys, DHCP); `proxmox_vm_vendor_data`
+  is written to a snippet and merged in as vendor data. It is create-only: changing hardware or
+  cloud-init settings later does not touch an existing VM.
+- `qemu_guest_agent` (SSH as `ubuntu` with sudo) waits for cloud-init and keeps
+  `qemu-guest-agent` installed and running. VMs without `ansible_host` in `inventory/hosts.yml`
+  are skipped with a message: find the address under the VM's Summary in Proxmox, reserve it in
+  DHCP and add it to the inventory.
+
+`k3s01` (group `k3s`, VMID 110) is Ubuntu 26.04 LTS with 4 cores, 8 GiB RAM and a 100 GB disk on
+`tank`, on the `servers` VNet with a pinned MAC for a DHCP reservation. Cloud-init installs the
+QEMU guest agent and a single-node k3s server pinned to `k3s_version` (`group_vars/k3s`).
+
+Before the first run, add your public key to `proxmox_vm_ssh_public_keys` in
+`inventory/group_vars/proxmox_vms/vars.yml`.
+
+```sh
+just check guests
+just apply guests
+ssh ubuntu@<vm address> sudo k3s kubectl get nodes   # once cloud-init has finished
+```
+
+To rebuild a VM, delete it in Proxmox and run `just apply guests` again.
 
 ## Secrets
 

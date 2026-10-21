@@ -1,0 +1,4 @@
+---
+proxmox_vm_id: 110
+# Pinned so the router's DHCP reservation survives a rebuild.
+proxmox_vm_macaddr: BC:24:11:6B:3E:A1

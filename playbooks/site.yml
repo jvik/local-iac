@@ -5,3 +5,6 @@
 # Hardware-specific: see the header in proxmox.yml.
 - name: Proxmox host
   ansible.builtin.import_playbook: proxmox.yml
+
+- name: Guests
+  ansible.builtin.import_playbook: guests.yml

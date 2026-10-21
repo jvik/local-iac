@@ -4,3 +4,14 @@ proxmox_api_host: "{{ hostvars[proxmox_api_node].ansible_host }}"
 proxmox_api_user: ansible@pve
 proxmox_api_token_name: ansible
 proxmox_api_token_secret: "{{ vault_proxmox_api_token_secret }}"
+
+# Cloud images for VMs, downloaded into the import directory of this storage. VM cloud-init vendor
+# data goes in its snippets directory. Pin dated builds: a new build gets a new file name, so
+# existing VMs are not affected and old files are left in place.
+proxmox_cloud_images_storage: local
+proxmox_cloud_images:
+  ubuntu-26.04:
+    url: https://cloud-images.ubuntu.com/releases/resolute/release-20261016/ubuntu-26.04-server-cloudimg-amd64.img
+    checksum: sha256:5645d0318ad21f643ebb1ac4567514620e9893380b07b0201fda163baa5b7eb5
+    # The image is qcow2; the import content type only accepts known extensions.
+    file: ubuntu-26.04-server-cloudimg-amd64-20261016.qcow2

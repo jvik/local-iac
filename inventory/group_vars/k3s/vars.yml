@@ -1,0 +1,35 @@
+---
+# Single-node k3s server for homelab workloads, installed by cloud-init on the first boot with the
+# bundled Traefik, ServiceLB and local-path storage.
+k3s_version: v1.36.5+k3s1
+
+proxmox_vm_image: ubuntu-26.04
+proxmox_vm_cores: 4
+proxmox_vm_memory: 8192
+proxmox_vm_disk_size: 100G
+proxmox_vm_tags: [k3s]
+
+proxmox_vm_vendor_data:
+  packages:
+    - qemu-guest-agent
+    # Needed by Longhorn and NFS volumes, if added later.
+    - open-iscsi
+    - nfs-common
+  write_files:
+    - path: /etc/sysctl.d/90-k3s.conf
+      permissions: "0644"
+      content: |
+        fs.inotify.max_user_instances = 8192
+        fs.inotify.max_user_watches = 524288
+    - path: /etc/rancher/k3s/config.yaml
+      permissions: "0600"
+      content: |
+        write-kubeconfig-mode: "0600"
+  runcmd:
+    - [systemctl, enable, --now, qemu-guest-agent]
+    - [sysctl, --system]
+    - - sh
+      - -c
+      - >-
+        curl -sfL https://raw.githubusercontent.com/k3s-io/k3s/{{ k3s_version | urlencode }}/install.sh
+        | INSTALL_K3S_VERSION='{{ k3s_version }}' sh -s - server

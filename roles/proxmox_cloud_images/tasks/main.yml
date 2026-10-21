@@ -1,0 +1,62 @@
+---
+# Additive: enables content types on the storage and downloads images. Nothing is removed.
+
+- name: Read cloud image storage config
+  ansible.builtin.command:
+    argv: [pvesh, get, "/storage/{{ proxmox_cloud_images_storage }}", --output-format, json]
+  register: proxmox_cloud_images_storage_config
+  changed_when: false
+  check_mode: false
+  tags: [images]
+
+- name: Set cloud image storage facts
+  vars:
+    proxmox_cloud_images_config: "{{ proxmox_cloud_images_storage_config.stdout | from_json }}"
+  ansible.builtin.set_fact:
+    proxmox_cloud_images_path: "{{ proxmox_cloud_images_config.path | default('') }}"
+    proxmox_cloud_images_current_content: >-
+      {{ (proxmox_cloud_images_config.content | default('')).split(',') | select | list }}
+  tags: [images]
+
+- name: Refuse a cloud image storage that is not a directory
+  ansible.builtin.assert:
+    that: proxmox_cloud_images_path | length > 0
+    fail_msg: Storage {{ proxmox_cloud_images_storage }} has no path; use a directory storage.
+    quiet: true
+  tags: [images]
+
+- name: Enable import and snippets content on the storage
+  ansible.builtin.command:
+    argv:
+      - pvesm
+      - set
+      - "{{ proxmox_cloud_images_storage }}"
+      - --content
+      - "{{ proxmox_cloud_images_current_content | union(proxmox_cloud_images_content) | join(',') }}"
+  when: proxmox_cloud_images_content | difference(proxmox_cloud_images_current_content) | length > 0
+  changed_when: true
+  tags: [images]
+
+- name: Create import and snippets directories
+  ansible.builtin.file:
+    path: "{{ proxmox_cloud_images_path }}/{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop: [import, snippets]
+  tags: [images]
+
+- name: Download cloud images
+  ansible.builtin.get_url:
+    url: "{{ item.value.url }}"
+    dest: "{{ proxmox_cloud_images_path }}/import/{{ item.value.file }}"
+    checksum: "{{ item.value.checksum }}"
+    owner: root
+    group: root
+    mode: "0644"
+    timeout: 60
+  loop: "{{ proxmox_cloud_images | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  tags: [images]

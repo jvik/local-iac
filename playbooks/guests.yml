@@ -1,0 +1,32 @@
+---
+- name: Prepare cloud images
+  hosts: proxmox
+  gather_facts: false
+  roles:
+    - role: proxmox_cloud_images
+      tags: [images]
+
+# Creates VMs through the API token; nothing connects to the VMs themselves.
+- name: Provision VMs
+  hosts: proxmox_vms
+  gather_facts: false
+  module_defaults:
+    group/community.proxmox.proxmox:
+      api_host: "{{ proxmox_api_host }}"
+      api_user: "{{ proxmox_api_user }}"
+      api_token_id: "{{ proxmox_api_token_name }}"
+      api_token_secret: "{{ proxmox_api_token_secret }}"
+      # The host uses the self-signed certificate from the Proxmox installer.
+      validate_certs: false
+  roles:
+    - role: proxmox_vm
+      tags: [vms]
+
+# Connects to the VMs over SSH as the cloud-init user.
+- name: Configure VMs
+  hosts: proxmox_vms
+  gather_facts: false
+  become: true
+  roles:
+    - role: qemu_guest_agent
+      tags: [guest_agent]
