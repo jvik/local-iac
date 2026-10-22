@@ -7,8 +7,8 @@ vault_file := "inventory/group_vars/all/vault.yml"
 default:
     @just --list
 
-# Install tools, Python deps, Ansible collections and the vault password
-setup: vault-init
+# Check the vault password, install tools, Python deps and Ansible collections
+setup: vault-check
     mise install
     uv sync
     ansible-galaxy collection install -r requirements.yml
@@ -53,15 +53,10 @@ apply playbook="site" *args: (_playbook playbook args)
 _playbook playbook *args:
     ansible-playbook playbooks/{{ playbook }}.yml {{ args }}
 
-# Generate the vault password file if it does not exist
-vault-init:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    f="$ANSIBLE_VAULT_PASSWORD_FILE"
-    if [[ -f "$f" ]]; then exit 0; fi
-    mkdir -p -m 700 "$(dirname "$f")"
-    (umask 077 && head -c 32 /dev/urandom | base64 > "$f")
-    echo "Created vault password at $f. Back it up in your password manager."
+# Check that the vault password can be read from Bitwarden
+vault-check:
+    @"$ANSIBLE_VAULT_PASSWORD_FILE" > /dev/null
+    @echo "Vault password is available."
 
 # Edit the encrypted vault
 vault-edit:

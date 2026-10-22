@@ -13,19 +13,23 @@ manage the host. Follow the steps in order.
   ssh root@10.0.10.233 true   # must succeed without a password prompt
   ```
 
-- [mise](https://mise.jdx.dev) is installed on your workstation.
+- [mise](https://mise.jdx.dev), the [Bitwarden CLI](https://bitwarden.com/help/cli/) (`bw`) and
+  `jq` are installed on your workstation.
+- `bw` is logged in, and the Bitwarden note `ansible_vault_password_file_local_iac` has a custom
+  field `password` holding the Ansible Vault password.
 
 ## 2. Workstation setup
 
-If the vault already exists (any machine except the first), restore the vault password from your
-password manager **before** running `just setup`. Otherwise a new password is generated, and it
-cannot decrypt the existing vault.
+The vault password is read from Bitwarden each time Ansible runs (`scripts/vault-pass`). Unlock
+Bitwarden in every shell that runs `just` or `ansible`:
 
 ```sh
-mkdir -p -m 700 ~/.config/local-iac
-# paste the password into ~/.config/local-iac/vault-pass, then:
-chmod 600 ~/.config/local-iac/vault-pass
+export BW_SESSION="$(bw unlock --raw)"
 ```
+
+On the first machine, create the Bitwarden note `ansible_vault_password_file_local_iac` with a
+custom field `password` first. Generate the value with `head -c 32 /dev/urandom | base64`. It must
+exist before the vault is created, and it cannot be recovered if lost.
 
 Then:
 
@@ -35,8 +39,8 @@ mise install
 just setup
 ```
 
-On the first machine, `just setup` generates `~/.config/local-iac/vault-pass`. Back it up in your
-password manager now.
+`just setup` starts with `just vault-check`, which fails with a message if Bitwarden is locked or
+the field is missing.
 
 ## 3. Verify connectivity
 
@@ -102,8 +106,8 @@ changes.
   `just bootstrap --tags api`. The new secret replaces the old one in the vault.
 - **Token created but not stored in the vault** (e.g. `store-token` failed): run `just store-token`.
   The secret is waiting in `~/.config/local-iac/pve01-api-token`.
-- **Vault password lost:** the vault cannot be decrypted. Delete `vault.yml` and
-  `~/.config/local-iac/vault-pass`, delete the token in the Proxmox UI, then run `just setup` and
-  `just bootstrap`.
+- **Vault password lost** (the Bitwarden note is gone): the vault cannot be decrypted. Delete
+  `vault.yml`, delete the token in the Proxmox UI, create a new Bitwarden note, then run
+  `just setup` and `just bootstrap`.
 - **Locked out of SSH:** use the console in the Proxmox web UI (as `root@pam` with a password) and
   remove `/etc/ssh/sshd_config.d/10-local-iac.conf`, then `systemctl reload ssh`.

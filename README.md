@@ -20,10 +20,12 @@ Infrastructure as Code for a homelab built on a single Proxmox VE host, managed 
 ```sh
 mise trust
 mise install      # Python, uv, just; creates .venv
-just setup        # vault password, uv sync, Ansible collections into ./collections
+just setup        # check vault password, uv sync, Ansible collections into ./collections
 ```
 
-mise activates `.venv` and sets `ANSIBLE_VAULT_PASSWORD_FILE` when you enter the directory.
+mise activates `.venv` and sets `ANSIBLE_VAULT_PASSWORD_FILE` when you enter the directory. It
+points at `scripts/vault-pass`, which reads the vault password from Bitwarden, so unlock first with
+`export BW_SESSION="$(bw unlock --raw)"`.
 Python dependencies are defined in `pyproject.toml` and locked in `uv.lock`; Ansible collections
 are in `requirements.yml`. Run `just` to list all recipes.
 
@@ -366,7 +368,7 @@ just vault-edit
 | --- | --- |
 | SSH access | Your existing SSH key, in `/root/.ssh/authorized_keys` on the host |
 | API token secret | `vault_proxmox_api_token_secret` in `vault.yml` (encrypted, committed) |
-| Vault password | `~/.config/local-iac/vault-pass` (0600, outside the repo, never committed) |
+| Vault password | Bitwarden note `ansible_vault_password_file_local_iac`, field `password`, read by `scripts/vault-pass` |
 | k3s admin kubeconfig | `~/.config/local-iac/kubeconfig` (0600, fetched by `just kubeconfig`) |
 | Cloudflare API token | `vault_cloudflare_api_token` in `vault.yml` (encrypted, committed) |
 | Cloudflare Tunnel token | Read from the Cloudflare API on each run, stored only in Secret `cloudflared/cloudflared` |

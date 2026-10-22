@@ -9,6 +9,7 @@ helm = "4"
 
 [env]
 _.python.venv = { path = ".venv", create = true }
-ANSIBLE_VAULT_PASSWORD_FILE = "{{ env.HOME }}/.config/local-iac/vault-pass"
+# Executable, so Ansible runs it and reads the password from stdout (fetched from Bitwarden).
+ANSIBLE_VAULT_PASSWORD_FILE = "{{ config_root }}/scripts/vault-pass"
 # Written by `just kubeconfig`.
 KUBECONFIG = "{{ env.HOME }}/.config/local-iac/kubeconfig"
