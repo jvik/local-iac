@@ -1,6 +1,6 @@
 ---
-# Traefik listens on ports 80 and 443 of the node through ServiceLB. There is no DNS record for the
-# host yet; send it with curl --resolve or a Host header.
+# Traefik listens on ports 80 and 443 of the node through ServiceLB. Public through the Cloudflare
+# Tunnel (kubernetes/apps/cloudflared); on the LAN, send the Host header with curl --resolve.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -8,7 +8,7 @@ metadata:
 spec:
   ingressClassName: traefik
   rules:
-    - host: hello.home.arpa
+    - host: hello.bitbu.dev
       http:
         paths:
           - path: /

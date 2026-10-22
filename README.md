@@ -61,7 +61,7 @@ step-by-step procedure, verification and recovery.
 │   ├── inventory.yml        # Read-only hardware/storage/network/guest report
 │   ├── proxmox.yml          # Host configuration (hardware-specific)
 │   ├── update.yml           # Automatic updates and an on-demand apt dist-upgrade
-│   └── guests.yml           # Cloud images, VM provisioning and the k3s kubeconfig
+│   └── guests.yml           # Cloud images, VM provisioning, k3s kubeconfig and secrets
 ├── kubernetes/
 │   └── apps/<app>/          # Kustomize directories applied to k3s
 ├── reports/                 # Generated host reports (git-ignored)
@@ -194,7 +194,7 @@ To rebuild a VM, delete it in Proxmox and run `just apply guests` again.
 
 ## Kubernetes
 
-The last play in `playbooks/guests.yml` (`k3s_kubeconfig`, tag `kubeconfig`) copies the k3s admin
+The `k3s_kubeconfig` play in `playbooks/guests.yml` (tag `kubeconfig`) copies the k3s admin
 kubeconfig to `~/.config/local-iac/kubeconfig` (0600), pointed at the VM's address from
 `proxmox_vm_address`. mise installs `kubectl` and sets `KUBECONFIG` to that file inside the repo.
 The kubeconfig holds a cluster-admin client key: treat it like the vault password. Run
@@ -202,15 +202,54 @@ The kubeconfig holds a cluster-admin client key: treat it like the vault passwor
 
 Manifests live in `kubernetes/apps/<app>/` as Kustomize directories, ready to be picked up by
 Argo CD later. `hello` is a smoke test: `traefik/whoami` behind the bundled Traefik ingress on
-`hello.home.arpa`.
+`hello.bitbu.dev`.
 
 ```sh
 just kubeconfig
 kubectl get nodes
 just kube-apply hello
 kubectl -n hello rollout status deployment/hello
-curl --resolve hello.home.arpa:80:<vm address> http://hello.home.arpa/
+curl --resolve hello.bitbu.dev:80:<vm address> http://hello.bitbu.dev/
 just kube-delete hello
+```
+
+The last play in `playbooks/guests.yml` (`k3s_secrets`, tag `secrets`) creates the Secrets in
+`k3s_secrets` (`group_vars/k3s`) from the vault, from the control node through `KUBECONFIG`. Apps
+reference them by name; they are not part of the Kustomize directories.
+
+### Public access (Cloudflare Tunnel)
+
+`kubernetes/apps/cloudflared` runs a remotely managed Cloudflare Tunnel connector. It connects out
+to Cloudflare, so no ports are opened on the router, and Cloudflare terminates TLS. Public
+hostnames are set on the tunnel in the Cloudflare dashboard, all pointing at Traefik, which routes
+by host to the Ingresses.
+
+Use hostnames one level below the zone (`<app>.bitbu.dev`): the free Universal SSL certificate
+does not cover `<app>.<sub>.bitbu.dev`.
+
+One-time setup:
+
+1. In the Cloudflare dashboard, under Zero Trust > Networks > Tunnels, create a Cloudflared
+   tunnel named `k3s01` and copy its token.
+2. Store the token in the vault as `vault_cloudflared_tunnel_token` (`just vault-edit`).
+3. Create the Secret and start the connector:
+
+   ```sh
+   just apply guests --tags secrets
+   just kube-apply cloudflared
+   kubectl -n cloudflared rollout status deployment/cloudflared
+   ```
+
+4. The tunnel shows as Healthy in the dashboard. Then add a public hostname per app, e.g.
+   `hello.bitbu.dev` with service `http://traefik.kube-system.svc.cluster.local:80`. Cloudflare
+   creates the proxied DNS record.
+
+To publish another app, give its Ingress a `<app>.bitbu.dev` host and add the same public hostname
+to the tunnel. Anything on a public hostname is reachable by anyone; put admin UIs behind a
+Cloudflare Access application.
+
+```sh
+curl https://hello.bitbu.dev/
 ```
 
 ## Secrets
@@ -233,6 +272,7 @@ just vault-edit
 | API token secret | `vault_proxmox_api_token_secret` in `vault.yml` (encrypted, committed) |
 | Vault password | `~/.config/local-iac/vault-pass` (0600, outside the repo, never committed) |
 | k3s admin kubeconfig | `~/.config/local-iac/kubeconfig` (0600, fetched by `just kubeconfig`) |
+| Cloudflare Tunnel token | `vault_cloudflared_tunnel_token` in `vault.yml`, copied to Secret `cloudflared/cloudflared` |
 
 `just setup` generates the vault password if it is missing. **Back it up in a password manager**:
 without it the vault cannot be decrypted. The `ansible@pve` user has no password; it is only

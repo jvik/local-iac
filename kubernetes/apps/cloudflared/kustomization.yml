@@ -1,0 +1,12 @@
+---
+# Cloudflare Tunnel connector: publishes Traefik on the internet without opening ports.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: cloudflared
+labels:
+  - pairs:
+      app.kubernetes.io/name: cloudflared
+    includeSelectors: true
+resources:
+  - namespace.yml
+  - deployment.yml

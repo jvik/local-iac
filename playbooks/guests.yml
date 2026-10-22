@@ -43,3 +43,11 @@
       tags: [always]
     - role: k3s_kubeconfig
       tags: [kubeconfig]
+
+# Talks to the cluster from the control node through KUBECONFIG; nothing connects to the VM.
+- name: Create k3s secrets
+  hosts: k3s
+  gather_facts: false
+  roles:
+    - role: k3s_secrets
+      tags: [secrets]

@@ -8,6 +8,8 @@ dependencies = [
   # Required on the control node by community.proxmox modules
   "proxmoxer>=2.2",
   "requests>=2.32",
+  # Required on the control node by kubernetes.core modules
+  "kubernetes>=32",
 ]
 
 [dependency-groups]

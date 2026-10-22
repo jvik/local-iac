@@ -3,6 +3,13 @@
 # bundled Traefik, ServiceLB and local-path storage.
 k3s_version: v1.36.5+k3s1
 
+# Created by the k3s_secrets role; the manifests in kubernetes/apps reference them by name.
+k3s_secrets:
+  - name: cloudflared
+    namespace: cloudflared
+    data:
+      token: "{{ vault_cloudflared_tunnel_token }}"
+
 proxmox_vm_image: ubuntu-26.04
 proxmox_vm_cores: 4
 proxmox_vm_memory: 8192

@@ -1,0 +1,35 @@
+---
+# Runs on the control node against the cluster in KUBECONFIG (set by mise, written by
+# k3s_kubeconfig). Only adds and updates; secrets not listed are left alone.
+
+# apply sets the last-applied annotation, so a later kubectl apply -k of the same namespace does
+# not warn.
+- name: Create secret namespaces
+  delegate_to: localhost
+  run_once: true
+  kubernetes.core.k8s:
+    api_version: v1
+    kind: Namespace
+    name: "{{ item }}"
+    state: present
+    apply: true
+  loop: "{{ k3s_secrets | map(attribute='namespace') | unique }}"
+
+# Values are base64-encoded into data rather than sent as stringData, which the API server never
+# returns, so an unchanged secret is reported as unchanged.
+- name: Create secrets
+  delegate_to: localhost
+  run_once: true
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: v1
+      kind: Secret
+      type: Opaque
+      metadata:
+        name: "{{ item.name }}"
+        namespace: "{{ item.namespace }}"
+      data: "{{ dict(item.data.keys() | zip(item.data.values() | map('ansible.builtin.b64encode'))) }}"
+  loop: "{{ k3s_secrets }}"
+  loop_control:
+    label: "{{ item.namespace }}/{{ item.name }}"
+  no_log: true
