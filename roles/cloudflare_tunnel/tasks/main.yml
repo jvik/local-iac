@@ -1,0 +1,143 @@
+---
+# Runs on the control node against the Cloudflare API. Creates a remotely managed tunnel if missing,
+# sets its routes to exactly cloudflare_tunnel_hostnames (anything else gets a 404) and points a
+# proxied CNAME at the tunnel for each hostname. DNS records of hostnames removed from the list are
+# left in place.
+#
+# Sets cloudflare_tunnel_token for k3s_secrets. The lookups run with every tag so that a partial run
+# (--tags secrets) still has the token. ansible.builtin.uri does not support check mode, so lookups
+# set check_mode: false and changes are skipped in check mode.
+
+- name: Check public hostnames
+  ansible.builtin.assert:
+    that: item is match('^[a-z0-9-]+\.' ~ (cloudflare_tunnel_zone | regex_escape) ~ '$')
+    fail_msg: "{{ item }} must be one level below {{ cloudflare_tunnel_zone }}"
+    quiet: true
+  loop: "{{ cloudflare_tunnel_hostnames }}"
+  tags: [always]
+
+- name: Manage Cloudflare Tunnel
+  delegate_to: localhost
+  run_once: true
+  module_defaults:
+    ansible.builtin.uri:
+      headers:
+        Authorization: "Bearer {{ cloudflare_tunnel_api_token }}"
+  vars:
+    cloudflare_tunnel_account_url: >-
+      {{ cloudflare_tunnel_api_url }}/accounts/{{ cloudflare_tunnel_account_id }}/cfd_tunnel
+    cloudflare_tunnel_ingress: >-
+      {{ cloudflare_tunnel_hostnames
+         | map('community.general.dict_kv', 'hostname')
+         | map('combine', {'service': cloudflare_tunnel_service})
+         | list
+         + [{'service': 'http_status:404'}] }}
+  block:
+    - name: Look up zone
+      ansible.builtin.uri:
+        url: "{{ cloudflare_tunnel_api_url }}/zones?name={{ cloudflare_tunnel_zone | urlencode }}"
+      register: cloudflare_tunnel_zone_lookup
+      check_mode: false
+      no_log: true
+      tags: [always]
+
+    - name: Check zone
+      ansible.builtin.assert:
+        that: cloudflare_tunnel_zone_lookup.json.result | length == 1
+        fail_msg: "Zone {{ cloudflare_tunnel_zone }} not found, or the API token cannot read it"
+        quiet: true
+      tags: [always]
+
+    - name: Set account
+      ansible.builtin.set_fact:
+        cloudflare_tunnel_account_id: "{{ cloudflare_tunnel_zone_lookup.json.result[0].account.id }}"
+      tags: [always]
+
+    - name: Look up tunnel
+      ansible.builtin.uri:
+        url: >-
+          {{ cloudflare_tunnel_account_url }}?is_deleted=false&name={{ cloudflare_tunnel_name | urlencode }}
+      register: cloudflare_tunnel_lookup
+      check_mode: false
+      no_log: true
+      tags: [always]
+
+    - name: Create tunnel
+      ansible.builtin.uri:
+        url: "{{ cloudflare_tunnel_account_url }}"
+        method: POST
+        body_format: json
+        body:
+          name: "{{ cloudflare_tunnel_name }}"
+          config_src: cloudflare
+      register: cloudflare_tunnel_created
+      changed_when: true
+      no_log: true
+      when: cloudflare_tunnel_lookup.json.result | length == 0
+
+    - name: Check tunnel
+      ansible.builtin.assert:
+        that: >-
+          cloudflare_tunnel_lookup.json.result | length > 0
+          or (cloudflare_tunnel_created | default({})).json is defined
+        fail_msg: >-
+          No tunnel named {{ cloudflare_tunnel_name }} in the account of {{ cloudflare_tunnel_zone }}.
+          It is only created by a real run (not check mode) with the tunnel tag.
+        quiet: true
+      tags: [always]
+
+    - name: Set tunnel
+      ansible.builtin.set_fact:
+        cloudflare_tunnel_id: >-
+          {{ (cloudflare_tunnel_lookup.json.result or [cloudflare_tunnel_created.json.result])
+             | map(attribute='id') | first }}
+      tags: [always]
+
+    - name: Read tunnel token
+      ansible.builtin.uri:
+        url: "{{ cloudflare_tunnel_account_url }}/{{ cloudflare_tunnel_id }}/token"
+      register: cloudflare_tunnel_token_lookup
+      check_mode: false
+      no_log: true
+      tags: [always]
+
+    - name: Set tunnel token
+      ansible.builtin.set_fact:
+        cloudflare_tunnel_token: "{{ cloudflare_tunnel_token_lookup.json.result }}"
+      no_log: true
+      tags: [always]
+
+    - name: Read tunnel routes
+      ansible.builtin.uri:
+        url: "{{ cloudflare_tunnel_account_url }}/{{ cloudflare_tunnel_id }}/configurations"
+      register: cloudflare_tunnel_config
+      check_mode: false
+      no_log: true
+
+    # Compares only the fields this role sets; a path added in the dashboard counts as a change.
+    - name: Set tunnel routes
+      ansible.builtin.uri:
+        url: "{{ cloudflare_tunnel_account_url }}/{{ cloudflare_tunnel_id }}/configurations"
+        method: PUT
+        body_format: json
+        body:
+          config:
+            ingress: "{{ cloudflare_tunnel_ingress }}"
+      changed_when: true
+      no_log: true
+      when: >-
+        (cloudflare_tunnel_config.json.result.config | default({}, true)).ingress | default([])
+        | community.general.keep_keys(target=['hostname', 'path', 'service'])
+        != cloudflare_tunnel_ingress
+
+    - name: Point DNS records at the tunnel
+      community.general.cloudflare_dns:
+        api_token: "{{ cloudflare_tunnel_api_token }}"
+        zone: "{{ cloudflare_tunnel_zone }}"
+        record: "{{ item }}"
+        type: CNAME
+        value: "{{ cloudflare_tunnel_id }}.cfargotunnel.com"
+        proxied: true
+        # Replaces any other CNAME on the name, e.g. one pointing at a previous tunnel.
+        solo: true
+      loop: "{{ cloudflare_tunnel_hostnames }}"

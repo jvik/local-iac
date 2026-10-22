@@ -36,6 +36,25 @@ workstation to a state Ansible can manage. Keep it accurate:
   (`groups['proxmox'] | first`, `hostvars[host].ansible_host`, `inventory_hostname`). Other shared
   values are defined once in `group_vars` and referenced.
 
+## Readability
+
+Everything here is maintained by hand. Code that a person can read and change without help is a
+higher priority than compact or clever code.
+
+- **Simple over dense**: prefer several plain tasks to one that does a lot. A reader should
+  understand a task from its name and arguments without running it.
+- **Jinja**: keep expressions short. Avoid long filter chains, inline `if`/`else`, and building
+  lists or dicts in Jinja. Split them into named steps (`set_fact` or task `vars`) or write the
+  data out in YAML.
+- **Modules over raw calls**: use a module when one exists rather than `ansible.builtin.uri`,
+  `command` or `shell`.
+- **No premature abstraction**: write the straightforward version for the case at hand. Add
+  variables, loops or generic roles only when there is a second real use.
+- **Comments**: explain why something is done, or a non-obvious constraint, not what the code
+  already says.
+- **Errors**: fail with a message that tells the reader what is wrong and what to do (`assert`
+  with `fail_msg`), not an undefined-variable error.
+
 ## Secrets
 
 - Never write secrets in plain text, including in examples, commit messages, or logs.

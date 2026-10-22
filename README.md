@@ -213,40 +213,49 @@ curl --resolve hello.bitbu.dev:80:<vm address> http://hello.bitbu.dev/
 just kube-delete hello
 ```
 
-The last play in `playbooks/guests.yml` (`k3s_secrets`, tag `secrets`) creates the Secrets in
-`k3s_secrets` (`group_vars/k3s`) from the vault, from the control node through `KUBECONFIG`. Apps
-reference them by name; they are not part of the Kustomize directories.
+The last play in `playbooks/guests.yml` (`Publish k3s`) runs from the control node: the
+`cloudflare_tunnel` role (tag `tunnel`, below) talks to the Cloudflare API, then `k3s_secrets` (tag
+`secrets`) creates the Secrets in `k3s_secrets` (`group_vars/k3s`) through `KUBECONFIG`. Apps
+reference the Secrets by name; they are not part of the Kustomize directories.
 
 ### Public access (Cloudflare Tunnel)
 
-`kubernetes/apps/cloudflared` runs a remotely managed Cloudflare Tunnel connector. It connects out
-to Cloudflare, so no ports are opened on the router, and Cloudflare terminates TLS. Public
-hostnames are set on the tunnel in the Cloudflare dashboard, all pointing at Traefik, which routes
-by host to the Ingresses.
+`kubernetes/apps/cloudflared` runs a Cloudflare Tunnel connector. It connects out to Cloudflare,
+so no ports are opened on the router, and Cloudflare terminates TLS.
 
-Use hostnames one level below the zone (`<app>.bitbu.dev`): the free Universal SSL certificate
-does not cover `<app>.<sub>.bitbu.dev`.
+The `cloudflare_tunnel` role manages the tunnel through the Cloudflare API, from
+`group_vars/k3s`:
+
+- Creates a remotely managed tunnel named after the host (`k3s01`) in the account that owns
+  `cloudflare_tunnel_zone`, or adopts an existing one with that name.
+- Sets the tunnel's routes to exactly `cloudflare_tunnel_hostnames`, all to Traefik, which routes
+  by host to the Ingresses. Any other hostname gets a 404. Routes added in the dashboard are
+  removed.
+- Creates a proxied CNAME to the tunnel for each hostname. Records of hostnames removed from the
+  list are left in place; delete them in the dashboard.
+- Reads the tunnel token for the `cloudflared` Secret, so the token is never stored in the vault.
+
+Hostnames must be one level below the zone (`<app>.bitbu.dev`): the free Universal SSL certificate
+does not cover `<app>.<sub>.bitbu.dev`. The role refuses deeper names.
 
 One-time setup:
 
-1. In the Cloudflare dashboard, under Zero Trust > Networks > Tunnels, create a Cloudflared
-   tunnel named `k3s01` and copy its token.
-2. Store the token in the vault as `vault_cloudflared_tunnel_token` (`just vault-edit`).
-3. Create the Secret and start the connector:
+1. In the Cloudflare dashboard, under My Profile > API Tokens, create a custom token with
+   Account > Cloudflare Tunnel: Edit and Zone > DNS: Edit, scoped to your account and the
+   `bitbu.dev` zone.
+2. Store it in the vault as `vault_cloudflare_api_token` (`just vault-edit`).
+3. Create the tunnel, routes, DNS records and Secret, then start the connector:
 
    ```sh
-   just apply guests --tags secrets
+   just check guests --tags tunnel,secrets
+   just apply guests --tags tunnel,secrets
    just kube-apply cloudflared
    kubectl -n cloudflared rollout status deployment/cloudflared
    ```
 
-4. The tunnel shows as Healthy in the dashboard. Then add a public hostname per app, e.g.
-   `hello.bitbu.dev` with service `http://traefik.kube-system.svc.cluster.local:80`. Cloudflare
-   creates the proxied DNS record.
-
-To publish another app, give its Ingress a `<app>.bitbu.dev` host and add the same public hostname
-to the tunnel. Anything on a public hostname is reachable by anyone; put admin UIs behind a
-Cloudflare Access application.
+To publish another app, give its Ingress an `<app>.bitbu.dev` host, add the hostname to
+`cloudflare_tunnel_hostnames` and run `just apply guests --tags tunnel`. Anything on a public
+hostname is reachable by anyone; put admin UIs behind a Cloudflare Access application.
 
 ```sh
 curl https://hello.bitbu.dev/
@@ -272,7 +281,8 @@ just vault-edit
 | API token secret | `vault_proxmox_api_token_secret` in `vault.yml` (encrypted, committed) |
 | Vault password | `~/.config/local-iac/vault-pass` (0600, outside the repo, never committed) |
 | k3s admin kubeconfig | `~/.config/local-iac/kubeconfig` (0600, fetched by `just kubeconfig`) |
-| Cloudflare Tunnel token | `vault_cloudflared_tunnel_token` in `vault.yml`, copied to Secret `cloudflared/cloudflared` |
+| Cloudflare API token | `vault_cloudflare_api_token` in `vault.yml` (encrypted, committed) |
+| Cloudflare Tunnel token | Read from the Cloudflare API on each run, stored only in Secret `cloudflared/cloudflared` |
 
 `just setup` generates the vault password if it is missing. **Back it up in a password manager**:
 without it the vault cannot be decrypted. The `ansible@pve` user has no password; it is only

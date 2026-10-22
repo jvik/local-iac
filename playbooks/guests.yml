@@ -44,10 +44,13 @@
     - role: k3s_kubeconfig
       tags: [kubeconfig]
 
-# Talks to the cluster from the control node through KUBECONFIG; nothing connects to the VM.
-- name: Create k3s secrets
+# Talks to the Cloudflare API and to the cluster through KUBECONFIG from the control node; nothing
+# connects to the VM. k3s_secrets needs the tunnel token from cloudflare_tunnel.
+- name: Publish k3s
   hosts: k3s
   gather_facts: false
   roles:
+    - role: cloudflare_tunnel
+      tags: [tunnel]
     - role: k3s_secrets
       tags: [secrets]

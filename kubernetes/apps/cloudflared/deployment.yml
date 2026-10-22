@@ -1,7 +1,7 @@
 ---
-# Remotely managed tunnel: public hostnames are configured on the tunnel in the Cloudflare dashboard
-# and point at Traefik, which routes by Host header to the Ingresses. The token Secret is created by
-# the k3s_secrets role, not by this Kustomization.
+# Remotely managed tunnel: the cloudflare_tunnel role sets its public hostnames through the
+# Cloudflare API, all pointing at Traefik, which routes by Host header to the Ingresses. The token
+# Secret is created by the k3s_secrets role, not by this Kustomization.
 apiVersion: apps/v1
 kind: Deployment
 metadata:

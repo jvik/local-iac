@@ -3,12 +3,20 @@
 # bundled Traefik, ServiceLB and local-path storage.
 k3s_version: v1.36.5+k3s1
 
+# Public hostnames, served through a Cloudflare Tunnel to Traefik. Each needs an Ingress with the
+# same host in kubernetes/apps.
+cloudflare_tunnel_api_token: "{{ vault_cloudflare_api_token }}"
+cloudflare_tunnel_zone: bitbu.dev
+cloudflare_tunnel_hostnames:
+  - hello.bitbu.dev
+
 # Created by the k3s_secrets role; the manifests in kubernetes/apps reference them by name.
 k3s_secrets:
   - name: cloudflared
     namespace: cloudflared
     data:
-      token: "{{ vault_cloudflared_tunnel_token }}"
+      # Read from the Cloudflare API by the cloudflare_tunnel role.
+      token: "{{ cloudflare_tunnel_token }}"
 
 proxmox_vm_image: ubuntu-26.04
 proxmox_vm_cores: 4

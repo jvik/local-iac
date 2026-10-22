@@ -1,0 +1,13 @@
+---
+# Cloudflare API token with Account > Cloudflare Tunnel: Edit and Zone > DNS: Edit on the zone.
+cloudflare_tunnel_api_token: ""
+cloudflare_tunnel_api_url: https://api.cloudflare.com/client/v4
+
+cloudflare_tunnel_name: "{{ inventory_hostname }}"
+# Zone that holds the public hostnames. The tunnel is created in the account that owns it.
+cloudflare_tunnel_zone: ""
+# Public hostnames routed through the tunnel, one level below the zone: the free Universal SSL
+# certificate does not cover deeper names.
+cloudflare_tunnel_hostnames: []
+# Origin for every hostname. Traefik routes by Host header to the Ingresses.
+cloudflare_tunnel_service: http://traefik.kube-system.svc.cluster.local:80
