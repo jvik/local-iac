@@ -4,6 +4,8 @@ uv = "latest"
 just = "latest"
 # Keep within one minor version of k3s_version (group_vars/k3s).
 kubectl = "1.36"
+# Used by the argocd role through kubernetes.core.helm.
+helm = "4"
 
 [env]
 _.python.venv = { path = ".venv", create = true }

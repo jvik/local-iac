@@ -45,12 +45,17 @@
       tags: [kubeconfig]
 
 # Talks to the Cloudflare API and to the cluster through KUBECONFIG from the control node; nothing
-# connects to the VM. k3s_secrets needs the tunnel token from cloudflare_tunnel.
+# connects to the VM. cloudflare_access and k3s_secrets need the account and tunnel token from
+# cloudflare_tunnel; argocd needs the repository Secret from k3s_secrets.
 - name: Publish k3s
   hosts: k3s
   gather_facts: false
   roles:
     - role: cloudflare_tunnel
       tags: [tunnel]
+    - role: cloudflare_access
+      tags: [access]
     - role: k3s_secrets
       tags: [secrets]
+    - role: argocd
+      tags: [argocd]

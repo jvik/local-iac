@@ -40,6 +40,10 @@ kube-apply app:
 kube-delete app:
     kubectl delete -k kubernetes/apps/{{ app }}
 
+# Print the Argo CD admin password generated on install
+argocd-password:
+    kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d; echo
+
 # Dry run a playbook with diff
 check playbook="site" *args: (_playbook playbook "--check" "--diff" args)
 

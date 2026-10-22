@@ -1,0 +1,10 @@
+---
+# Cloudflare API token with Account > Access: Apps and Policies: Edit, in the account of the
+# tunnel.
+cloudflare_access_api_token: ""
+cloudflare_access_api_url: https://api.cloudflare.com/client/v4
+
+# Public hostnames that require a Cloudflare Access login, and the email addresses allowed in.
+cloudflare_access_hostnames: []
+cloudflare_access_emails: []
+cloudflare_access_policy_name: "{{ inventory_hostname }} admins"

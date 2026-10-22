@@ -1,0 +1,14 @@
+---
+# Argo CD Helm chart from https://argoproj.github.io/argo-helm. Upgrade by changing the version.
+argocd_chart_version: 10.10.5
+argocd_namespace: argocd
+
+# Public hostname of the web UI, served by Traefik. TLS ends at Cloudflare, so Argo CD serves
+# plain HTTP.
+argocd_hostname: ""
+
+# Git repository with the workloads. Every directory under argocd_workloads_path becomes an
+# Application of the same name, deployed to a namespace of the same name.
+argocd_workloads_repo_url: ""
+argocd_workloads_revision: main
+argocd_workloads_path: apps

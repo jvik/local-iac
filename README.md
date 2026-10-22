@@ -61,9 +61,9 @@ step-by-step procedure, verification and recovery.
 │   ├── inventory.yml        # Read-only hardware/storage/network/guest report
 │   ├── proxmox.yml          # Host configuration (hardware-specific)
 │   ├── update.yml           # Automatic updates and an on-demand apt dist-upgrade
-│   └── guests.yml           # Cloud images, VM provisioning, k3s kubeconfig and secrets
+│   └── guests.yml           # Cloud images, VMs, k3s kubeconfig, tunnel, secrets, Argo CD
 ├── kubernetes/
-│   └── apps/<app>/          # Kustomize directories applied to k3s
+│   └── apps/<app>/          # Cluster infrastructure applied with just kube-apply
 ├── reports/                 # Generated host reports (git-ignored)
 └── roles/
     └── <role>/              # One role per concern
@@ -200,23 +200,69 @@ kubeconfig to `~/.config/local-iac/kubeconfig` (0600), pointed at the VM's addre
 The kubeconfig holds a cluster-admin client key: treat it like the vault password. Run
 `just kubeconfig` again after rebuilding the VM or when its address changes.
 
-Manifests live in `kubernetes/apps/<app>/` as Kustomize directories, ready to be picked up by
-Argo CD later. `hello` is a smoke test: `traefik/whoami` behind the bundled Traefik ingress on
-`hello.bitbu.dev`.
+Workloads live in a separate repository,
+[jvik/homelab-workloads](https://github.com/jvik/homelab-workloads), deployed by Argo CD (below).
+This repository keeps the cluster infrastructure that Argo CD itself depends on:
+`kubernetes/apps/cloudflared`, applied by hand as a Kustomize directory.
 
 ```sh
 just kubeconfig
 kubectl get nodes
-just kube-apply hello
-kubectl -n hello rollout status deployment/hello
-curl --resolve hello.bitbu.dev:80:<vm address> http://hello.bitbu.dev/
-just kube-delete hello
+just kube-apply cloudflared
 ```
 
 The last play in `playbooks/guests.yml` (`Publish k3s`) runs from the control node: the
-`cloudflare_tunnel` role (tag `tunnel`, below) talks to the Cloudflare API, then `k3s_secrets` (tag
-`secrets`) creates the Secrets in `k3s_secrets` (`group_vars/k3s`) through `KUBECONFIG`. Apps
-reference the Secrets by name; they are not part of the Kustomize directories.
+`cloudflare_tunnel` role (tag `tunnel`, below) and `cloudflare_access` (tag `access`) talk to the
+Cloudflare API, `k3s_secrets` (tag `secrets`) creates the Secrets in `k3s_secrets`
+(`group_vars/k3s`) through `KUBECONFIG`, and `argocd` (tag `argocd`) installs Argo CD. Apps
+reference the Secrets by name; they are never committed to a manifest repository.
+
+### Argo CD
+
+The `argocd` role installs the Argo CD Helm chart pinned to `argocd_chart_version` with Helm
+(installed by mise), and creates the ApplicationSet `workloads`. It turns every directory under
+`apps/` in `argocd_workloads_repo_url` into an Application of the same name, deployed to a namespace
+of the same name, synced automatically with prune and self-heal. Upgrade Argo CD by changing the
+chart version here; everything else goes in the workloads repository.
+
+Argo CD reads the private workloads repository with a read-only deploy key, stored in the vault as
+`vault_argocd_workloads_ssh_key` and put in the `argocd/workloads-repo` Secret by `k3s_secrets`.
+
+The UI is on `argocd.bitbu.dev`, behind Cloudflare Access (below), then the Argo CD `admin` login.
+TLS ends at Cloudflare, so Argo CD serves plain HTTP to Traefik. The `argocd` CLI does not get past
+Access; use `kubectl -n argocd port-forward svc/argocd-server 8080:80` and `--plaintext` instead.
+
+One-time setup:
+
+1. Create the deploy key and add the public half to the workloads repository under Settings >
+   Deploy keys, without write access:
+
+   ```sh
+   ssh-keygen -t ed25519 -N '' -C argocd@k3s01 -f ~/.config/local-iac/argocd-deploy-key
+   ```
+
+2. Store the private key in the vault as `vault_argocd_workloads_ssh_key` (a YAML block scalar,
+   `just vault-edit`), then delete both key files.
+3. Install Argo CD and check that the apps sync:
+
+   ```sh
+   just setup                                    # Helm and kubernetes.core >= 6.4.0
+   just apply guests --tags tunnel,access,secrets,argocd
+   kubectl -n argocd get applications
+   just argocd-password
+   ```
+
+The ApplicationSet needs the CRDs from the chart, so `just check` fails at that task until Argo CD
+is installed. Apps already applied by hand (such as `hello` before the move) are adopted by Argo CD
+on the first sync.
+
+### Cloudflare Access
+
+The `cloudflare_access` role puts each hostname in `cloudflare_access_hostnames` behind a
+self-hosted Access application, with one reusable policy (`k3s01 admins`) that allows the
+addresses in `cloudflare_access_emails`. Applications of hostnames removed from the list are left
+in place. It needs Zero Trust enabled on the account (the free plan is enough); the default
+One-time PIN login emails a code to an allowed address.
 
 ### Public access (Cloudflare Tunnel)
 
@@ -241,8 +287,8 @@ does not cover `<app>.<sub>.bitbu.dev`. The role refuses deeper names.
 One-time setup:
 
 1. In the Cloudflare dashboard, under My Profile > API Tokens, create a custom token with
-   Account > Cloudflare Tunnel: Edit and Zone > DNS: Edit, scoped to your account and the
-   `bitbu.dev` zone.
+   Account > Cloudflare Tunnel: Edit, Account > Access: Apps and Policies: Edit and Zone > DNS:
+   Edit, scoped to your account and the `bitbu.dev` zone.
 2. Store it in the vault as `vault_cloudflare_api_token` (`just vault-edit`).
 3. Create the tunnel, routes, DNS records and Secret, then start the connector:
 
@@ -255,7 +301,7 @@ One-time setup:
 
 To publish another app, give its Ingress an `<app>.bitbu.dev` host, add the hostname to
 `cloudflare_tunnel_hostnames` and run `just apply guests --tags tunnel`. Anything on a public
-hostname is reachable by anyone; put admin UIs behind a Cloudflare Access application.
+hostname is reachable by anyone; put admin UIs in `cloudflare_access_hostnames` as well.
 
 ```sh
 curl https://hello.bitbu.dev/
@@ -283,6 +329,8 @@ just vault-edit
 | k3s admin kubeconfig | `~/.config/local-iac/kubeconfig` (0600, fetched by `just kubeconfig`) |
 | Cloudflare API token | `vault_cloudflare_api_token` in `vault.yml` (encrypted, committed) |
 | Cloudflare Tunnel token | Read from the Cloudflare API on each run, stored only in Secret `cloudflared/cloudflared` |
+| Workloads repo deploy key | `vault_argocd_workloads_ssh_key` in `vault.yml` (encrypted, committed) |
+| Argo CD admin password | Generated on install, in Secret `argocd/argocd-initial-admin-secret` (`just argocd-password`) |
 
 `just setup` generates the vault password if it is missing. **Back it up in a password manager**:
 without it the vault cannot be decrypted. The `ansible@pve` user has no password; it is only

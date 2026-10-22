@@ -4,3 +4,5 @@ collections:
   - name: community.general
   - name: community.proxmox
   - name: kubernetes.core
+    # 6.4.0 added Helm 4 support (mise.toml).
+    version: ">=6.4.0"

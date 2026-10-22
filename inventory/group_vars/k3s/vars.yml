@@ -3,20 +3,40 @@
 # bundled Traefik, ServiceLB and local-path storage.
 k3s_version: v1.36.5+k3s1
 
+# Argo CD deploys every directory under apps/ in the workloads repository.
+argocd_hostname: argocd.bitbu.dev
+argocd_workloads_repo_url: git@github.com:jvik/homelab-workloads.git
+
 # Public hostnames, served through a Cloudflare Tunnel to Traefik. Each needs an Ingress with the
-# same host in kubernetes/apps.
+# same host, in the workloads repository or kubernetes/apps.
 cloudflare_tunnel_api_token: "{{ vault_cloudflare_api_token }}"
 cloudflare_tunnel_zone: bitbu.dev
 cloudflare_tunnel_hostnames:
   - hello.bitbu.dev
+  - "{{ argocd_hostname }}"
 
-# Created by the k3s_secrets role; the manifests in kubernetes/apps reference them by name.
+# Hostnames that require a Cloudflare Access login first, and who may log in.
+cloudflare_access_api_token: "{{ vault_cloudflare_api_token }}"
+cloudflare_access_hostnames:
+  - "{{ argocd_hostname }}"
+cloudflare_access_emails: []
+
+# Created by the k3s_secrets role; manifests reference them by name.
 k3s_secrets:
   - name: cloudflared
     namespace: cloudflared
     data:
       # Read from the Cloudflare API by the cloudflare_tunnel role.
       token: "{{ cloudflare_tunnel_token }}"
+  # Read-only deploy key for the workloads repository. Argo CD picks up repository Secrets by label.
+  - name: workloads-repo
+    namespace: argocd
+    labels:
+      argocd.argoproj.io/secret-type: repository
+    data:
+      type: git
+      url: "{{ argocd_workloads_repo_url }}"
+      sshPrivateKey: "{{ vault_argocd_workloads_ssh_key }}"
 
 proxmox_vm_image: ubuntu-26.04
 proxmox_vm_cores: 4

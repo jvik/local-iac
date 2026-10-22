@@ -1,0 +1,124 @@
+---
+# Runs on the control node against the Cloudflare API. Puts each of cloudflare_access_hostnames
+# behind a self-hosted Access application with one reusable policy that allows
+# cloudflare_access_emails. Applications of hostnames removed from the list are left in place.
+#
+# Needs cloudflare_tunnel_account_id from cloudflare_tunnel. ansible.builtin.uri does not support
+# check mode, so lookups set check_mode: false and changes are skipped in check mode.
+
+- name: Check Access settings
+  ansible.builtin.assert:
+    that:
+      - cloudflare_access_emails | length > 0
+      - cloudflare_tunnel_account_id is defined
+    fail_msg: >-
+      Set cloudflare_access_emails in group_vars/k3s, and run cloudflare_tunnel first: it looks up
+      the account.
+    quiet: true
+
+- name: Manage Cloudflare Access
+  delegate_to: localhost
+  run_once: true
+  module_defaults:
+    ansible.builtin.uri:
+      headers:
+        Authorization: "Bearer {{ cloudflare_access_api_token }}"
+  vars:
+    cloudflare_access_url: >-
+      {{ cloudflare_access_api_url }}/accounts/{{ cloudflare_tunnel_account_id }}/access
+    cloudflare_access_include: >-
+      {{ cloudflare_access_emails
+         | map('community.general.dict_kv', 'email')
+         | map('community.general.dict_kv', 'email')
+         | list }}
+    cloudflare_access_policy_body:
+      name: "{{ cloudflare_access_policy_name }}"
+      decision: allow
+      include: "{{ cloudflare_access_include }}"
+  block:
+    - name: Look up Access policy
+      ansible.builtin.uri:
+        url: "{{ cloudflare_access_url }}/policies"
+      register: cloudflare_access_policies
+      check_mode: false
+
+    - name: Find Access policy
+      ansible.builtin.set_fact:
+        cloudflare_access_policy: >-
+          {{ cloudflare_access_policies.json.result
+             | selectattr('name', 'equalto', cloudflare_access_policy_name) | first | default({}) }}
+
+    - name: Create Access policy
+      ansible.builtin.uri:
+        url: "{{ cloudflare_access_url }}/policies"
+        method: POST
+        body_format: json
+        body: "{{ cloudflare_access_policy_body }}"
+      register: cloudflare_access_policy_created
+      changed_when: true
+      when: cloudflare_access_policy == {}
+
+    - name: Update Access policy
+      ansible.builtin.uri:
+        url: "{{ cloudflare_access_url }}/policies/{{ cloudflare_access_policy.id }}"
+        method: PUT
+        body_format: json
+        body: "{{ cloudflare_access_policy_body }}"
+      changed_when: true
+      when:
+        - cloudflare_access_policy != {}
+        - cloudflare_access_policy.decision != 'allow'
+          or cloudflare_access_policy.include != cloudflare_access_include
+
+    - name: Check Access policy
+      ansible.builtin.assert:
+        that: >-
+          cloudflare_access_policy != {}
+          or (cloudflare_access_policy_created | default({})).json is defined
+        fail_msg: >-
+          No Access policy named {{ cloudflare_access_policy_name }}. It is only created by a real
+          run (not check mode) with the access tag.
+        quiet: true
+
+    - name: Set Access policy
+      ansible.builtin.set_fact:
+        cloudflare_access_policy_id: >-
+          {{ cloudflare_access_policy.id | default(cloudflare_access_policy_created.json.result.id) }}
+
+    - name: Look up Access applications
+      ansible.builtin.uri:
+        url: "{{ cloudflare_access_url }}/apps"
+      register: cloudflare_access_apps
+      check_mode: false
+
+    - name: Create Access applications
+      ansible.builtin.uri:
+        url: "{{ cloudflare_access_url }}/apps"
+        method: POST
+        body_format: json
+        body:
+          name: "{{ item }}"
+          domain: "{{ item }}"
+          type: self_hosted
+          policies:
+            - id: "{{ cloudflare_access_policy_id }}"
+      changed_when: true
+      loop: "{{ cloudflare_access_hostnames }}"
+      when: cloudflare_access_apps.json.result | selectattr('domain', 'equalto', item) | length == 0
+
+    - name: Attach policy to Access applications
+      ansible.builtin.uri:
+        url: "{{ cloudflare_access_url }}/apps/{{ item.id }}"
+        method: PUT
+        body_format: json
+        body:
+          name: "{{ item.name }}"
+          domain: "{{ item.domain }}"
+          type: self_hosted
+          policies:
+            - id: "{{ cloudflare_access_policy_id }}"
+      changed_when: true
+      loop: "{{ cloudflare_access_apps.json.result | selectattr('domain', 'in', cloudflare_access_hostnames) }}"
+      loop_control:
+        label: "{{ item.domain }}"
+      when: item.policies | map(attribute='id') | list != [cloudflare_access_policy_id]

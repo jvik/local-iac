@@ -1,4 +1,4 @@
 ---
-# Secrets to create in the k3s cluster, each with name, namespace and data (plain strings, usually
-# from vault_ variables). Missing namespaces are created.
+# Secrets to create in the k3s cluster, each with name, namespace, data (plain strings, usually
+# from vault_ variables) and optional labels. Missing namespaces are created.
 k3s_secrets: []

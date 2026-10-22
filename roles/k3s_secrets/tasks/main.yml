@@ -28,6 +28,7 @@
       metadata:
         name: "{{ item.name }}"
         namespace: "{{ item.namespace }}"
+        labels: "{{ item.labels | default({}) }}"
       data: "{{ dict(item.data.keys() | zip(item.data.values() | map('ansible.builtin.b64encode'))) }}"
   loop: "{{ k3s_secrets }}"
   loop_control:
