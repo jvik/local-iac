@@ -10,10 +10,12 @@
       - proxmox_vm_image in proxmox_cloud_images
       - proxmox_vm_ssh_public_keys | length > 0
       - proxmox_vm_disk_size is match('^[0-9]+G$')
+      - proxmox_vm_data_disk_size is match('^([0-9]+G)?$')
     fail_msg: >-
       {{ inventory_hostname }} needs proxmox_vm_id (100 or higher), proxmox_vm_image from
-      proxmox_cloud_images (got {{ proxmox_vm_image }}), at least one key in proxmox_vm_ssh_public_keys and
-      proxmox_vm_disk_size in whole GiB such as 32G (got {{ proxmox_vm_disk_size }}).
+      proxmox_cloud_images (got {{ proxmox_vm_image }}), at least one key in proxmox_vm_ssh_public_keys,
+      proxmox_vm_disk_size in whole GiB such as 32G (got {{ proxmox_vm_disk_size }}) and
+      proxmox_vm_data_disk_size empty or in whole GiB (got {{ proxmox_vm_data_disk_size }}).
     quiet: true
   tags: [vms]
 
@@ -106,6 +108,34 @@
     state: resized
     timeout: "{{ proxmox_vm_timeout }}"
   delegate_to: localhost
+  tags: [vms]
+
+# Before the first start, so cloud-init finds the disk when it formats and mounts it.
+- name: Add data disk
+  community.proxmox.proxmox_disk:
+    vmid: "{{ proxmox_vm_id }}"
+    disk: scsi1
+    storage: "{{ proxmox_vm_storage }}"
+    # Creation takes GiB without the suffix.
+    size: "{{ proxmox_vm_data_disk_size | regex_replace('G$', '') }}"
+    discard: "on"
+    iothread: true
+    ssd: true
+    state: present
+    timeout: "{{ proxmox_vm_timeout }}"
+  delegate_to: localhost
+  when: proxmox_vm_data_disk_size | length > 0
+  tags: [vms]
+
+- name: Grow data disk
+  community.proxmox.proxmox_disk:
+    vmid: "{{ proxmox_vm_id }}"
+    disk: scsi1
+    size: "{{ proxmox_vm_data_disk_size }}"
+    state: resized
+    timeout: "{{ proxmox_vm_timeout }}"
+  delegate_to: localhost
+  when: proxmox_vm_data_disk_size | length > 0
   tags: [vms]
 
 - name: Start VM

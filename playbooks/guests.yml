@@ -46,7 +46,7 @@
 
 # Talks to the Cloudflare API and to the cluster through KUBECONFIG from the control node; nothing
 # connects to the VM. cloudflare_access and k3s_secrets need the account and tunnel token from
-# cloudflare_tunnel; argocd needs the repository Secret from k3s_secrets.
+# cloudflare_tunnel; cloudflared and argocd need their Secrets from k3s_secrets.
 - name: Publish k3s
   hosts: k3s
   gather_facts: false
@@ -57,5 +57,25 @@
       tags: [access]
     - role: k3s_secrets
       tags: [secrets]
+    - role: cloudflared
+      tags: [cloudflared]
     - role: argocd
       tags: [argocd]
+
+# Points the Proxmox host's metrics and logs at the observability stack on k3s. Here rather than in
+# proxmox.yml because the k3s node's address is only known after proxmox_vm_address has run above.
+# The ports match the LoadBalancer Services in apps/observability in the workloads repository.
+- name: Send Proxmox metrics and logs to k3s
+  hosts: proxmox
+  gather_facts: false
+  vars:
+    proxmox_k3s_address: "{{ hostvars[groups['k3s'] | first].ansible_host | default('') }}"
+  roles:
+    - role: proxmox_metrics
+      vars:
+        proxmox_metrics_server: "{{ proxmox_k3s_address }}"
+      tags: [metrics]
+    - role: proxmox_syslog
+      vars:
+        proxmox_syslog_server: "{{ proxmox_k3s_address }}"
+      tags: [syslog]

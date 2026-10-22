@@ -7,6 +7,9 @@ k3s_version: v1.36.5+k3s1
 argocd_hostname: argocd.bitbu.dev
 argocd_workloads_repo_url: git@github.com:jvik/homelab-workloads.git
 
+# Grafana of the observability stack (apps/observability in the workloads repository).
+grafana_hostname: grafana.bitbu.dev
+
 # Public hostnames, served through a Cloudflare Tunnel to Traefik. Each needs an Ingress with the
 # same host, in the workloads repository or kubernetes/apps.
 cloudflare_tunnel_api_token: "{{ vault_cloudflare_api_token }}"
@@ -14,11 +17,13 @@ cloudflare_tunnel_zone: bitbu.dev
 cloudflare_tunnel_hostnames:
   - hello.bitbu.dev
   - "{{ argocd_hostname }}"
+  - "{{ grafana_hostname }}"
 
 # Hostnames that require a Cloudflare Access login first, and who may log in.
 cloudflare_access_api_token: "{{ vault_cloudflare_api_token }}"
 cloudflare_access_hostnames:
   - "{{ argocd_hostname }}"
+  - "{{ grafana_hostname }}"
 cloudflare_access_emails: ["neat.bus1499@bitbu.no"]
 
 # Created by the k3s_secrets role; manifests reference them by name.
@@ -37,14 +42,39 @@ k3s_secrets:
       type: git
       url: "{{ argocd_workloads_repo_url }}"
       sshPrivateKey: "{{ vault_argocd_workloads_ssh_key }}"
+  # Grafana's local admin login, behind Cloudflare Access.
+  - name: grafana-admin
+    namespace: observability
+    data:
+      admin-user: admin
+      admin-password: "{{ vault_grafana_admin_password }}"
 
 proxmox_vm_image: ubuntu-26.04
 proxmox_vm_cores: 4
 proxmox_vm_memory: 8192
 proxmox_vm_disk_size: 100G
+# Every local-path PersistentVolume, including metrics and logs, mounted at
+# /var/lib/rancher/k3s/storage below. A full volume then cannot fill the root filesystem.
+proxmox_vm_data_disk_size: 300G
 proxmox_vm_tags: [k3s]
 
 proxmox_vm_vendor_data:
+  # Runs before runcmd, so the volume directory is mounted before k3s is installed. Whole disk, no
+  # partition table, so growing proxmox_vm_data_disk_size only needs resize2fs in the VM.
+  fs_setup:
+    - label: k3s-data
+      filesystem: ext4
+      device: /dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi1
+      partition: none
+  # nofail keeps the VM bootable (and reachable over SSH) without the disk; required-by keeps k3s
+  # from starting and writing volumes to the root filesystem instead.
+  mounts:
+    - - LABEL=k3s-data
+      - /var/lib/rancher/k3s/storage
+      - ext4
+      - defaults,nofail,x-systemd.required-by=k3s.service
+      - "0"
+      - "2"
   packages:
     - qemu-guest-agent
     # Needed by Longhorn and NFS volumes, if added later.

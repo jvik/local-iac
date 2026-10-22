@@ -1,0 +1,15 @@
+---
+# Runs on the control node against the cluster in KUBECONFIG. Applies kubernetes/apps/cloudflared,
+# the same Kustomization as just kube-apply cloudflared, so a rebuilt cluster gets its tunnel
+# connector from just apply guests. Needs the cloudflared Secret from k3s_secrets.
+
+# apply sets the last-applied annotation, so a later just kube-apply cloudflared does not warn.
+- name: Deploy Cloudflare Tunnel connector
+  delegate_to: localhost
+  run_once: true
+  kubernetes.core.k8s:
+    definition: "{{ lookup('kubernetes.core.kustomize', dir=playbook_dir ~ '/../kubernetes/apps/cloudflared') }}"
+    apply: true
+    # Ready means the replicas have a connection to Cloudflare, so a bad token fails the run here.
+    wait: true
+    wait_timeout: 180

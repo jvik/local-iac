@@ -1,0 +1,10 @@
+---
+# Proxmox external metric server (Datacenter > Metric Server) that sends host, guest and storage
+# metrics as InfluxDB line protocol over UDP. VictoriaMetrics in the workloads repository
+# (apps/observability) receives it on proxmox_metrics_port.
+proxmox_metrics_id: k3s
+# Address of the receiver; set by the play from the k3s node's address.
+proxmox_metrics_server: ""
+proxmox_metrics_port: 8089
+# UDP packets are not fragmented by Proxmox; keep them within the path MTU.
+proxmox_metrics_mtu: 1500

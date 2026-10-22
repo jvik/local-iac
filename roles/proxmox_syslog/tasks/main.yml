@@ -1,0 +1,31 @@
+---
+# Debian (and so Proxmox) no longer installs rsyslog by default. This only adds a forwarding
+# action; the package's own input and local log files are left as they are.
+
+- name: Refuse syslog forwarding without a target
+  ansible.builtin.assert:
+    that: proxmox_syslog_server | length > 0
+    fail_msg: >-
+      proxmox_syslog_server is empty. It is the k3s node's address, which is only known when the
+      VM is running and its guest agent reports an address.
+    quiet: true
+
+- name: Install rsyslog
+  ansible.builtin.apt:
+    name: rsyslog
+    state: present
+
+- name: Install forwarding config
+  ansible.builtin.template:
+    src: 90-local-iac-forward.conf.j2
+    dest: /etc/rsyslog.d/90-local-iac-forward.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Rsyslog config changed
+
+- name: Start rsyslog
+  ansible.builtin.systemd_service:
+    name: rsyslog
+    enabled: true
+    state: started

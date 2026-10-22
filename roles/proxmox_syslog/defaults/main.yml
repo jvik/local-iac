@@ -1,0 +1,8 @@
+---
+# Forwards the host's syslog to VictoriaLogs in the workloads repository (apps/observability),
+# over TCP so messages are not lost to dropped packets.
+# Address of the receiver; set by the play from the k3s node's address.
+proxmox_syslog_server: ""
+proxmox_syslog_port: 514
+# Messages queued on disk while the receiver is down, before rsyslog starts dropping them.
+proxmox_syslog_queue_max_disk_space: 1g

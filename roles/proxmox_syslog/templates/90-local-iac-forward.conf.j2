@@ -1,0 +1,15 @@
+{{ ansible_managed | comment }}
+# Everything to VictoriaLogs on k3s as RFC 5424, which carries the year and time zone. The
+# disk-assisted queue keeps messages while k3s is down and retries forever.
+*.* action(
+  type="omfwd"
+  target="{{ proxmox_syslog_server }}"
+  port="{{ proxmox_syslog_port }}"
+  protocol="tcp"
+  template="RSYSLOG_SyslogProtocol23Format"
+  queue.type="LinkedList"
+  queue.filename="local-iac-forward"
+  queue.maxDiskSpace="{{ proxmox_syslog_queue_max_disk_space }}"
+  queue.saveOnShutdown="on"
+  action.resumeRetryCount="-1"
+)

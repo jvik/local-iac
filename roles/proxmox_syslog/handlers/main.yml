@@ -1,0 +1,12 @@
+---
+- name: Validate rsyslog config
+  ansible.builtin.command:
+    argv: [rsyslogd, -N1]
+  changed_when: false
+  listen: Rsyslog config changed
+
+- name: Restart rsyslog
+  ansible.builtin.systemd_service:
+    name: rsyslog
+    state: restarted
+  listen: Rsyslog config changed

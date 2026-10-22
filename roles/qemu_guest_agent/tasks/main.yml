@@ -6,12 +6,20 @@
   ansible.builtin.wait_for_connection:
     timeout: 600
 
-# Avoids competing with cloud-init's own package installs for the apt lock.
+# Avoids competing with cloud-init's own package installs for the apt lock. Exit code 2 means
+# cloud-init finished with recoverable errors or warnings: the VM is usable, so report and go on.
 - name: Wait for cloud-init to finish
   ansible.builtin.command:
-    argv: [cloud-init, status, --wait]
+    argv: [cloud-init, status, --wait, --long]
+  register: qemu_guest_agent_cloud_init
   changed_when: false
+  failed_when: qemu_guest_agent_cloud_init.rc not in [0, 2]
   check_mode: false
+
+- name: Report cloud-init warnings
+  ansible.builtin.debug:
+    msg: "{{ qemu_guest_agent_cloud_init.stdout_lines }}"
+  when: qemu_guest_agent_cloud_init.rc == 2
 
 - name: Install QEMU guest agent
   ansible.builtin.apt:

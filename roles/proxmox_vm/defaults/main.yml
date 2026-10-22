@@ -17,6 +17,10 @@ proxmox_vm_cores: 2
 proxmox_vm_memory: 2048
 # Only grows the disk; Proxmox cannot shrink it.
 proxmox_vm_disk_size: 32G
+# Optional second disk (scsi1) for application data, in whole GiB such as 200G. Empty adds none.
+# Kept apart from the boot disk so data cannot fill the root filesystem and can be snapshotted on
+# its own. Formatting and mounting it is up to the VM's cloud-init vendor data.
+proxmox_vm_data_disk_size: ""
 # Defaults to the first ZFS pool (its storage ID is the pool name) and the first SDN VNet on the node.
 proxmox_vm_storage: "{{ (hostvars[proxmox_api_node].proxmox_zfs_pools | first).name }}"
 proxmox_vm_bridge: "{{ (hostvars[proxmox_api_node].proxmox_sdn_vnets | first).id }}"

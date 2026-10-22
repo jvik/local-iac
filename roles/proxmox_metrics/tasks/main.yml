@@ -1,0 +1,77 @@
+---
+# Metric servers live in /etc/pve/status.cfg, which is shared by the cluster; pvesh writes it
+# through the API so the file is never edited by hand. Only proxmox_metrics_id is managed; other
+# metric servers are left alone.
+
+- name: Refuse a metric server without a target
+  ansible.builtin.assert:
+    that: proxmox_metrics_server | length > 0
+    fail_msg: >-
+      proxmox_metrics_server is empty. It is the k3s node's address, which is only known when the
+      VM is running and its guest agent reports an address.
+    quiet: true
+
+- name: List metric servers
+  ansible.builtin.command:
+    argv: [pvesh, get, /cluster/metrics/server, --output-format, json]
+  register: proxmox_metrics_servers
+  changed_when: false
+  check_mode: false
+
+- name: Find existing metric server
+  ansible.builtin.set_fact:
+    proxmox_metrics_exists: >-
+      {{ proxmox_metrics_id in (proxmox_metrics_servers.stdout | from_json | map(attribute='id')) }}
+
+- name: Create metric server
+  ansible.builtin.command:
+    argv:
+      - pvesh
+      - create
+      - /cluster/metrics/server/{{ proxmox_metrics_id }}
+      - --type
+      - influxdb
+      - --influxdbproto
+      - udp
+      - --server
+      - "{{ proxmox_metrics_server }}"
+      - --port
+      - "{{ proxmox_metrics_port }}"
+      - --mtu
+      - "{{ proxmox_metrics_mtu }}"
+  changed_when: true
+  when: not proxmox_metrics_exists
+
+- name: Read metric server
+  ansible.builtin.command:
+    argv: [pvesh, get, "/cluster/metrics/server/{{ proxmox_metrics_id }}", --output-format, json]
+  register: proxmox_metrics_current
+  changed_when: false
+  check_mode: false
+  when: proxmox_metrics_exists
+
+# Compared as strings: pvesh returns some numbers as strings. The type cannot be changed with set.
+- name: Update metric server
+  vars:
+    proxmox_metrics_config: "{{ proxmox_metrics_current.stdout | from_json }}"
+  ansible.builtin.command:
+    argv:
+      - pvesh
+      - set
+      - /cluster/metrics/server/{{ proxmox_metrics_id }}
+      - --influxdbproto
+      - udp
+      - --server
+      - "{{ proxmox_metrics_server }}"
+      - --port
+      - "{{ proxmox_metrics_port }}"
+      - --mtu
+      - "{{ proxmox_metrics_mtu }}"
+  changed_when: true
+  when:
+    - proxmox_metrics_exists
+    - >-
+      proxmox_metrics_config.server | default('') != proxmox_metrics_server
+      or proxmox_metrics_config.port | default('') | string != proxmox_metrics_port | string
+      or proxmox_metrics_config.influxdbproto | default('udp') != 'udp'
+      or proxmox_metrics_config.mtu | default('') | string != proxmox_metrics_mtu | string

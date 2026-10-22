@@ -61,9 +61,10 @@ step-by-step procedure, verification and recovery.
 │   ├── inventory.yml        # Read-only hardware/storage/network/guest report
 │   ├── proxmox.yml          # Host configuration (hardware-specific)
 │   ├── update.yml           # Automatic updates and an on-demand apt dist-upgrade
-│   └── guests.yml           # Cloud images, VMs, k3s kubeconfig, tunnel, secrets, Argo CD
+│   └── guests.yml           # Cloud images, VMs, k3s kubeconfig, tunnel, secrets, Argo CD,
+│                            # Proxmox metrics and logs to k3s
 ├── kubernetes/
-│   └── apps/<app>/          # Cluster infrastructure applied with just kube-apply
+│   └── apps/<app>/          # Cluster infrastructure, applied by guests.yml or just kube-apply
 ├── reports/                 # Generated host reports (git-ignored)
 └── roles/
     └── <role>/              # One role per concern
@@ -173,9 +174,15 @@ just apply update --tags upgrade -e proxmox_updates_reboot=true
 - `qemu_guest_agent` (SSH as `ubuntu` with sudo) waits for cloud-init and keeps
   `qemu-guest-agent` installed and running.
 
-`k3s01` (group `k3s`, VMID 110) is Ubuntu 26.04 LTS with 4 cores, 8 GiB RAM and a 100 GB disk on
-`tank`, on the `servers` VNet with a pinned MAC for a DHCP reservation. Cloud-init installs the
-QEMU guest agent and a single-node k3s server pinned to `k3s_version` (`group_vars/k3s`).
+`k3s01` (group `k3s`, VMID 110) is Ubuntu 26.04 LTS with 4 cores, 8 GiB RAM and a 100 GB boot
+disk on `tank`, on the `servers` VNet with a pinned MAC for a DHCP reservation. Cloud-init installs
+the QEMU guest agent and a single-node k3s server pinned to `k3s_version` (`group_vars/k3s`).
+
+A second 300 GB disk (`scsi1`, `proxmox_vm_data_disk_size`) holds the local-path volumes: cloud-init
+formats it as ext4 and mounts it at `/var/lib/rancher/k3s/storage`, and k3s does not start without
+it. A full volume then cannot fill the root filesystem, and `tank/vm-110-disk-1` can be snapshotted
+or sent with `zfs send` on its own. After raising the size and running `just apply guests`, grow the
+filesystem with `sudo resize2fs /dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi1` in the VM.
 
 Before the first run, add your public key to `proxmox_vm_ssh_public_keys` in
 `inventory/group_vars/proxmox_vms/vars.yml`. The API token needs the guest agent privilege; on a
@@ -203,19 +210,21 @@ The kubeconfig holds a cluster-admin client key: treat it like the vault passwor
 Workloads live in a separate repository,
 [jvik/homelab-workloads](https://github.com/jvik/homelab-workloads), deployed by Argo CD (below).
 This repository keeps the cluster infrastructure that Argo CD itself depends on:
-`kubernetes/apps/cloudflared`, applied by hand as a Kustomize directory.
+`kubernetes/apps/cloudflared`, a Kustomize directory applied by `just apply guests` (below).
+`just kube-apply cloudflared` applies the same directory by hand.
 
 ```sh
 just kubeconfig
 kubectl get nodes
-just kube-apply cloudflared
 ```
 
-The last play in `playbooks/guests.yml` (`Publish k3s`) runs from the control node: the
+The `Publish k3s` play in `playbooks/guests.yml` runs from the control node: the
 `cloudflare_tunnel` role (tag `tunnel`, below) and `cloudflare_access` (tag `access`) talk to the
 Cloudflare API, `k3s_secrets` (tag `secrets`) creates the Secrets in `k3s_secrets`
-(`group_vars/k3s`) through `KUBECONFIG`, and `argocd` (tag `argocd`) installs Argo CD. Apps
-reference the Secrets by name; they are never committed to a manifest repository.
+(`group_vars/k3s`) through `KUBECONFIG`, `cloudflared` (tag `cloudflared`) applies
+`kubernetes/apps/cloudflared` and waits for the connector to be ready, and `argocd` (tag `argocd`)
+installs Argo CD. Apps reference the Secrets by name; they are never committed to a manifest
+repository.
 
 ### Argo CD
 
@@ -294,9 +303,8 @@ One-time setup:
 
    ```sh
    just check guests --tags tunnel,secrets
-   just apply guests --tags tunnel,secrets
-   just kube-apply cloudflared
-   kubectl -n cloudflared rollout status deployment/cloudflared
+   just apply guests --tags tunnel,secrets,cloudflared
+   kubectl -n cloudflared get pods
    ```
 
 To publish another app, give its Ingress an `<app>.bitbu.dev` host, add the hostname to
@@ -306,6 +314,39 @@ hostname is reachable by anyone; put admin UIs in `cloudflare_access_hostnames` 
 ```sh
 curl https://hello.bitbu.dev/
 ```
+
+### Observability
+
+The stack itself (VictoriaMetrics, VictoriaLogs, Grafana) is `apps/observability` in the workloads
+repository; its README lists the ports and protocols it accepts. This repository provides its
+Grafana hostname (`grafana_hostname`, public and behind Access), the `observability/grafana-admin`
+Secret, and points the Proxmox host at it. The last play in `playbooks/guests.yml` runs on the host:
+
+- `proxmox_metrics` (tag `metrics`) creates the metric server `k3s` (Datacenter > Metric Server):
+  InfluxDB line protocol over UDP to port 8089 on the k3s node.
+- `proxmox_syslog` (tag `syslog`) installs rsyslog and forwards all of syslog over TCP, as RFC 5424,
+  to port 514 on the k3s node, with a disk queue for when k3s is down.
+
+Both use the k3s node's address from `proxmox_vm_address`, so the VM must be running. If the
+router filters traffic between VLANs, allow the management VLAN to reach the k3s node on `8089/udp`
+and `514/tcp`.
+
+One-time setup:
+
+1. Store the Grafana admin password in the vault as `vault_grafana_admin_password`
+   (`just vault-edit`).
+2. Publish Grafana and create the Secret, then push the workloads repository:
+
+   ```sh
+   just apply guests --tags tunnel,access,secrets
+   ```
+
+3. Once `apps/observability` is synced, point the host at it:
+
+   ```sh
+   just check guests --tags metrics,syslog
+   just apply guests --tags metrics,syslog
+   ```
 
 ## Secrets
 
@@ -331,6 +372,7 @@ just vault-edit
 | Cloudflare Tunnel token | Read from the Cloudflare API on each run, stored only in Secret `cloudflared/cloudflared` |
 | Workloads repo deploy key | `vault_argocd_workloads_ssh_key` in `vault.yml` (encrypted, committed) |
 | Argo CD admin password | Generated on install, in Secret `argocd/argocd-initial-admin-secret` (`just argocd-password`) |
+| Grafana admin password | `vault_grafana_admin_password` in `vault.yml` (encrypted, committed), in Secret `observability/grafana-admin` |
 
 `just setup` generates the vault password if it is missing. **Back it up in a password manager**:
 without it the vault cannot be decrypted. The `ansible@pve` user has no password; it is only
