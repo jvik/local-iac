@@ -19,7 +19,7 @@ cloudflare_tunnel_hostnames:
 cloudflare_access_api_token: "{{ vault_cloudflare_api_token }}"
 cloudflare_access_hostnames:
   - "{{ argocd_hostname }}"
-cloudflare_access_emails: []
+cloudflare_access_emails: ["neat.bus1499@bitbu.no"]
 
 # Created by the k3s_secrets role; manifests reference them by name.
 k3s_secrets:

@@ -96,6 +96,8 @@
         url: "{{ cloudflare_access_url }}/apps"
         method: POST
         body_format: json
+        # Unlike the policies endpoint, creating an application answers 201 Created.
+        status_code: 201
         body:
           name: "{{ item }}"
           domain: "{{ item }}"
